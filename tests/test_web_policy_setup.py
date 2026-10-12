@@ -331,7 +331,7 @@ class ConfigFileTests(ConfigCase):
         self.assertEqual(configfile.secret_state(self.running.integrations.tmdb.api_key), "set")
 
     def test_an_address_with_a_password_or_a_token_counts_as_a_secret(self) -> None:
-        for url in ("http://me:word@host:8080", "https://host/notify?token=abc", "https://host/#frag"):
+        for url in ("http://me:word@host:8080", "https://host/notify?token=abc", "https://host/#frag"):  # trufflehog:ignore (fake credential)
             self.assertTrue(configfile.carries_secret(url), url)
         for url in ("http://prowlarr:9696", "${PROWLARR_URL}", None):
             self.assertFalse(configfile.carries_secret(url), url)
