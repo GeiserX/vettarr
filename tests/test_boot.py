@@ -31,7 +31,7 @@ FULL_ENV = {
     "TELEGRAM_OWNER_ID": "4242",
     "TMDB_API_KEY": "fake-tmdb-key-boot",
     # A URL carrying a password is kept as a reference, never a value.
-    "PROWLARR_URL": "http://operator:fake-url-pass@indexer:9696",
+    "PROWLARR_URL": "http://operator:fake-url-pass@indexer:9696",  # trufflehog:ignore (fake credential)
     "PROWLARR_API_KEY": "fake-prowlarr-key-boot",
     "QBITTORRENT_URL": "http://download-client:8080",
     "QBITTORRENT_USER": "operator",
