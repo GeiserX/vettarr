@@ -1,24 +1,32 @@
 {# Pieces the row, the review card and the item panel all draw. A rating and a
    status always carry their word: the colour only repeats it. #}
 
+{# No poster: the frame holds the title's first letter, set like a drop cap, not a question mark. #}
 {% macro poster(card, cls="poster") -%}
 {% if card.poster %}<img class="{{ cls }}" src="{{ card.poster }}" alt="" loading="lazy" width="96" height="144">
-{%- else %}<span class="{{ cls }} poster-none" aria-hidden="true">?</span>{% endif %}
+{%- else %}<span class="{{ cls }} poster-none" aria-hidden="true">{{ (card.title or '?')[:1]|upper }}</span>{% endif %}
+{%- endmacro %}
+
+{# The policy's verdict, the one thing set in the verdict inks: a small caps word,
+   "Policy" before it in the muted ink. The word carries it; the colour repeats it. #}
+{% macro verdict(card) -%}
+{% if card.verdict %}<span class="verdict verdict-{{ card.verdict[1] }}"><span class="verdict-by">Policy</span> {{ card.outcome }}</span>{% endif %}
 {%- endmacro %}
 
 {# `hide`: a status the page already says, such as the open tab's own name. #}
 {% macro chips(card, hide='') -%}
 {% if card.status[0] != hide %}<span class="badge badge-{{ card.status[1] }}">{{ card.status[0] }}</span>{% endif %}
-{% if card.verdict %}<span class="badge badge-{{ card.verdict[1] }}">{{ card.verdict[0] }}</span>{% endif %}
+{{ verdict(card) }}
 {%- endmacro %}
 
-{% macro meta(card) -%}
+{# `age`: false where the page sets the age itself, as the Inbox's ledger does in its own column. #}
+{% macro meta(card, age=true) -%}
 <span class="badge badge-{{ card.media_type }}">{{ card.media_type }}</span>
 {% if card.item.season %}<span>{{ card.item.season }}</span>{% endif %}
 {% if card.item.size_text %}<span>{{ card.item.size_text }}</span>{% endif %}
 {% if card.item.quality or card.item.source %}<span>{{ card.item.quality or '' }} {{ card.item.source or '' }}</span>{% endif %}
 {% if card.item.source_key %}<span>from {{ card.item.source_key }}</span>{% endif %}
-{% if card.age %}<span>{{ card.age }}</span>{% endif %}
+{% if age and card.age %}<span>{{ card.age }}</span>{% endif %}
 {%- endmacro %}
 
 {# `row`: only what is rated above none, as a row has room for; the item page shows every category. #}

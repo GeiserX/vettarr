@@ -2,9 +2,9 @@
 {% block title %}Sign in · vettarr{% endblock %}
 {% block shell %}
 <main id="main" class="login" tabindex="-1">
-    <div class="card login-card">
-        <div class="flex justify-center mb-6">{% include "_mark.html" %}</div>
-        <h1 class="sr-only">Sign in to vettarr</h1>
+    <div class="login-card">
+        <div class="flex justify-center">{% include "_mark.html" %}</div>
+        <h1 class="login-title">Sign in<span class="sr-only"> to vettarr</span></h1>
         {% if locked_minutes %}
         <div class="notice notice-warn" role="alert">
             <span aria-hidden="true">&#9888;</span>

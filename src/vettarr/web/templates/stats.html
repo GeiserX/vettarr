@@ -4,20 +4,31 @@
 {% set tab = 'stats' %}{% include "_stats_tabs.html" %}
 <p class="text-sm text-muted mb-4">What the policy and the providers did in the last {{ days }} days.</p>
 
-<ul class="stat-tiles mb-6" aria-label="Decisions in the last {{ days }} days">
-    <li class="card stat-tile">
+{#- The totals as a typeset table: each line its label, its figure and a sparkline
+    of the days (decorative: the chart below has the same numbers in words). #}
+{% macro spark(values) -%}
+{% set top = [values|max, 1]|max %}{% set last = [values|length - 1, 1]|max %}
+<svg class="spark" viewBox="0 0 100 20" preserveAspectRatio="none" aria-hidden="true">
+    <line class="spark-base" x1="0" x2="100" y1="20" y2="20"/>
+    <polyline points="{% for v in values %}{{ '%.1f'|format(100 * loop.index0 / last) }},{{ '%.1f'|format(19 - 18 * v / top) }} {% endfor %}"/>
+</svg>
+{%- endmacro %}
+<ul class="stat-tiles mb-8" aria-label="Decisions in the last {{ days }} days">
+    <li class="stat-tile">
         <span class="stat-label">Decisions</span>
         <span class="stat-value">{{ chart.total }}</span>
+        {{ spark(chart.days|map(attribute='total')|list) }}
     </li>
     {% for key, label in outcomes %}
-    <li class="card stat-tile">
+    <li class="stat-tile">
         <span class="stat-label"><span class="chart-swatch chart-{{ key }}" aria-hidden="true"></span>{{ label }}</span>
         <span class="stat-value">{{ chart.totals[key] }}</span>
+        {{ spark(chart.days|map(attribute='counts')|map(attribute=key, default=0)|list) }}
     </li>
     {% endfor %}
 </ul>
 
-<section class="card p-4 mb-6" aria-labelledby="per-day">
+<section class="card mb-6" aria-labelledby="per-day">
     <h2 class="section-title" id="per-day">Decisions per day</h2>
     {% if chart.total %}
     <ul class="legend" aria-hidden="true">
@@ -69,7 +80,7 @@
 </section>
 
 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-    <section class="card p-4" aria-labelledby="top-reasons">
+    <section class="card" aria-labelledby="top-reasons">
         <h2 class="section-title" id="top-reasons">Why items were not approved</h2>
         <p class="text-sm text-muted mb-3">The reasons of the items the policy held, left waiting or rejected, by how many items carry each.</p>
         {% if reasons %}
@@ -86,7 +97,7 @@
         {% endif %}
     </section>
 
-    <section class="card p-4" aria-labelledby="per-type">
+    <section class="card" aria-labelledby="per-type">
         <h2 class="section-title" id="per-type">Outcome per type</h2>
         <p class="text-sm text-muted mb-3">What became of each type's items, by the policy's latest decision on each.</p>
         {% if types %}
@@ -107,7 +118,7 @@
     </section>
 </div>
 
-<section class="card p-4 mb-6" aria-labelledby="shadow">
+<section class="card mb-6" aria-labelledby="shadow">
     <h2 class="section-title" id="shadow">Shadow agreement</h2>
     {% if agreement.total %}
     <p class="text-sm text-muted mb-3">In shadow mode the policy decides and leaves every item to you. This is what you then did with them.</p>
@@ -124,7 +135,7 @@
 </section>
 
 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-    <section class="card p-4" aria-labelledby="guards">
+    <section class="card" aria-labelledby="guards">
         <h2 class="section-title" id="guards">Provider pauses</h2>
         <p class="text-sm text-muted mb-3">A provider is paused when it refuses the session or asks to slow down. Nothing is sent to it until the pause ends.</p>
         {% if guards %}
@@ -156,7 +167,7 @@
         {% endif %}
     </section>
 
-    <section class="card p-4" aria-labelledby="downloads">
+    <section class="card" aria-labelledby="downloads">
         <h2 class="section-title" id="downloads">Downloads per provider</h2>
         <p class="text-sm text-muted mb-3">Every download this instance started, by the provider its release came from.</p>
         {% if downloads %}

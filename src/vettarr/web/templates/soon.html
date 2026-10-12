@@ -2,8 +2,8 @@
 {% block title %}{{ title }} · vettarr{% endblock %}
 {% block content %}
 <h1 class="page-title mb-4">{{ title }}</h1>
-<div class="card p-6 max-w-xl">
-    <p class="font-semibold">This page is not built yet.</p>
+<div class="card max-w-xl">
+    <p class="empty-line">This page is not built yet.</p>
     <p class="text-muted mt-2">{{ what }}</p>
     {% if note %}<p class="text-muted mt-2">{{ note }}</p>{% endif %}
     {% if meanwhile %}<a class="btn btn-secondary mt-4" href="{{ meanwhile[0] }}">{{ meanwhile[1] }}</a>{% endif %}

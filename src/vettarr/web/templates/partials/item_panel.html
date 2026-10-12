@@ -10,9 +10,9 @@
     <header class="panel-head">
         {{ bits.poster(card, "panel-poster") }}
         <div class="min-w-0">
-            <h1 class="panel-title">{{ card.title }}{% if item.year %} <span class="text-muted font-normal">({{ item.year }})</span>{% endif %}</h1>
-            <p class="row-meta">{{ bits.meta(card) }}</p>
             <p class="row-verdict">{{ bits.chips(card) }}</p>
+            <h1 class="panel-title">{{ card.title }}{% if item.year %} <span class="title-year">({{ item.year }})</span>{% endif %}</h1>
+            <p class="row-meta">{{ bits.meta(card) }}</p>
             {% if card.check and (card.check.tmdb_id or card.check.imdb_id) %}
             <p class="text-sm mt-2">
                 {% if card.check.tmdb_id %}<a class="link" href="https://www.themoviedb.org/{{ 'tv' if card.media_type == 'series' else 'movie' }}/{{ card.check.tmdb_id }}" target="_blank" rel="noopener noreferrer">TMDB<span class="sr-only"> (opens in a new tab)</span></a>{% endif %}
@@ -48,7 +48,7 @@
     <section class="card panel-section" aria-labelledby="verdict-title">
         <h2 id="verdict-title" class="section-title">Verdict</h2>
         {% if card.verdict %}
-        <p><span class="badge badge-{{ card.verdict[1] }}">{{ card.verdict[0] }}</span>
+        <p class="verdict-line">{{ bits.verdict(card) }}
             <span class="text-sm text-muted">{% if d.decided %}decided {{ d.decided }}{% endif %}{% if item.policy_version %} · policy {{ item.policy_version }}{% endif %}</span></p>
         {% else %}
         <p class="text-muted">The policy has not decided this item.</p>

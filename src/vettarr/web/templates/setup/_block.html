@@ -11,7 +11,7 @@
         {% endif %}
     </span>
 {% endset %}
-<div class="card p-4" id="card-{{ block.slug }}">
+<div class="card" id="card-{{ block.slug }}">
     {% if card.folded %}<details class="fold"><summary>{{ heading }}</summary>{% else %}{{ heading }}{% endif %}
     <p class="hint">{{ block.what }}</p>
     {% if card.facts %}

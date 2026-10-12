@@ -159,19 +159,21 @@ Because the pages' tests replace the readers, they never run a query. [`tests/te
 
 **Colours** are tokens, set once for light and once for dark in `app.css`. Use them through utilities: `bg-bg`, `bg-surface`, `bg-surface-2`, `border-line`, `text-text`, `text-muted`, `text-accent`, `text-ok`, `text-warn`, `text-danger` and the matching `bg-ok-bg`, `bg-warn-bg`, `bg-danger-bg`. The theme follows the system until the toggle in the nav stores a choice. `dark:` follows the same rule, but a page written with tokens should not need it. The pages written before the tokens use Tailwind's gray scale; those names follow the theme too until each page is rewritten, and the block that does it in `app.css` says to delete it then.
 
-**Type and spacing** are Tailwind's scale: `text-sm` for dense rows, `text-base` for prose, `page-title` for the page's heading, a 4 px spacing unit.
+**Type and spacing** are Tailwind's scale: `text-sm` for dense rows, `text-base` for prose, `page-title` for the page's heading, a 4 px spacing unit. Titles and prose are set in the system serif (`font-serif`: Iowan Old Style, Palatino, Charter, Georgia), every control, label and figure in the system sans with tabular figures; no font is fetched. Corners are 2 px at most and nothing has a shadow: a section is told apart by a hairline rule and space.
 
 **Components**, all in `app.css`:
 
 | Class | Use |
 |---|---|
-| `btn` with `btn-primary`, `btn-danger`, `btn-danger-outline`, `btn-secondary`, `btn-quiet`; `btn-lg`, `btn-icon` | Buttons. `btn-lg` is the 44 px touch size. Reject on a row, a card or a panel is `btn-danger-outline`; solid `btn-danger` is the confirm dialog's yes. |
-| `card` | A bordered surface. |
+| `btn` with `btn-primary`, `btn-danger`, `btn-danger-outline`, `btn-secondary`, `btn-quiet`; `btn-lg`, `btn-icon` | Buttons. `btn-primary` is an ink plate, `btn-lg` the 44 px touch size, solid `btn-danger` the confirm dialog's yes. Inside `panel-actions` and `review-actions` every button is set as a word in the accent. |
+| `act`, `act-main` | An action set as a word in the accent, dotted from the one before: a row's Approve · Reject · Search and the bulk bar's. `act-main` is the bold one. On a desktop a row shows them under the pointer or the focus. |
+| `card` | A section under a hairline, not a box. |
+| `verdict` with `verdict-ok`, `verdict-warn`, `verdict-flag`, `verdict-muted` | The policy's verdict as a small caps word (`bits.verdict(card)`). The only words set in the verdict inks. |
 | `label`, `input`, `check` | Form fields. Every input has a label. |
-| `badge` with `badge-<media type>`, `badge-ok`, `badge-warn`, `badge-flag`, `badge-muted` | Small labels. |
+| `badge` with `badge-<media type>`, `badge-ok`, `badge-warn`, `badge-flag`, `badge-muted` | A small caps word, never a pill. The tone is a mark before it (a tick, a dot, a cross, a ring). |
 | `tag` | A rule's id or another short code, in monospace. |
-| `select`, `link`, `empty` | A compact select for a filter row, a link inside text, the box a page shows when it has nothing. |
-| `pill` with `pill-none`, `pill-mild`, `pill-moderate`, `pill-severe`, `pill-unknown` | A rating. Always write the word in it (`Violence: severe`); the colour only repeats it. |
+| `select`, `link`, `empty`, `empty-line` | A compact select for a filter row, a link inside text, the place a page shows when it has nothing, and its sentence in italic. |
+| `pill` with `pill-none`, `pill-mild`, `pill-moderate`, `pill-severe`, `pill-unknown` | A rating, set as words in a dotted run. Always write the word in it (`Violence: severe`); the weight only repeats it. |
 | `notice` with `notice-error`, `notice-warn` | A message inside a page. |
 
 Policy and Setup add their own in [`static/src/forms.css`](../src/vettarr/web/static/src/forms.css), which `app.css` imports:

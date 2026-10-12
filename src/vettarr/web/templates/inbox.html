@@ -54,9 +54,9 @@
         {% for card in inbox.cards %}{% include "partials/inbox_row.html" %}{% endfor %}
     </div>
     {% else %}
-    <div class="card empty">
-        <p class="font-semibold">{{ tab.empty }}</p>
-        {% if filters.any %}<p class="text-muted mt-1">The filters may be hiding items. <a class="link" href="/?tab={{ tab.key }}">Clear the filters</a></p>{% endif %}
+    <div class="empty">
+        <p class="empty-line">{{ tab.empty }}</p>
+        {% if filters.any %}<p class="text-muted mt-2">The filters may be hiding items. <a class="link" href="/?tab={{ tab.key }}">Clear the filters</a></p>{% endif %}
     </div>
     {% endif %}
 
@@ -72,8 +72,8 @@
        dialog's title. The ticked boxes travel with either button. #}
     <div id="bulk-bar" class="bulk-bar" hidden>
         <span data-count role="status">0 selected</span>
-        <button class="btn btn-primary" hx-post="/bulk/approve" hx-include="[name='ids']:checked" hx-swap="none" hx-disabled-elt="#bulk-bar button">Approve</button>
-        <button class="btn btn-danger-outline" hx-post="/bulk/reject" hx-include="[name='ids']:checked" hx-swap="none" hx-disabled-elt="#bulk-bar button"
+        <button class="act act-main" hx-post="/bulk/approve" hx-include="[name='ids']:checked" hx-swap="none" hx-disabled-elt="#bulk-bar button">Approve</button>
+        <button class="act" hx-post="/bulk/reject" hx-include="[name='ids']:checked" hx-swap="none" hx-disabled-elt="#bulk-bar button"
                 data-confirm-title="Reject the selected items?" data-confirm="{{ inbox.bulk_reject_confirm }}" data-confirm-action="Reject">Reject</button>
     </div>
 </div>

@@ -1210,7 +1210,7 @@ class SourceTests(ConfigCase):
         self.assertEqual(resp.status_code, 422)
         self.assertIn("<title>Setup · vettarr</title>", resp.text)
         self.assertIn('aria-invalid="true"', tag(resp.text, "source-new-bot-key"))
-        self.assertRegex(resp.text, r'<details class="fold card px-4 pb-1" open>\s*<summary>The bot</summary>')
+        self.assertRegex(resp.text, r'<details class="fold card pb-1" open>\s*<summary>The bot</summary>')
         ok = self.post("/setup/sources", data={**self.adding("bot"), "key": "inbox", "chat": "private"})
         self.assertEqual((ok.status_code, ok.headers["location"]), (303, self.saved("sources")))
 

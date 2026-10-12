@@ -557,7 +557,9 @@ class InboxPageTests(PageCase):
         self.assertIn(f"<span>{item.size_text}</span>", row)
         # The open tab already says "Needs you": every row repeating it was noise.
         self.assertNotIn('<span class="badge badge-warn">Needs you</span>', row)
-        self.assertIn('<span class="badge badge-warn">Policy: review</span>', row)
+        # The verdict is a word in the margin, in its ink; the age is in figures beside it.
+        self.assertIn('<p class="row-margin"><span class="verdict verdict-warn"><span class="verdict-by">Policy</span> review</span></p>', row)
+        self.assertRegex(row, r'<p class="row-age"><time datetime="[^"]+" title="\d+ \w+ ago">\d+ \w+</time></p>')
         best = item.torrent_searches[0].prowlarr_results[0]
         self.assertIn(f'<span class="release-title" title="{best["title"]}">{best["title"]}</span>', row)
         self.assertIn(f'{best["seeders"]} seeders', row)
@@ -1129,7 +1131,7 @@ class ItemPageTests(PageCase):
         self.show(item)
         page = self.get(f"/item/{item.id}").text
         verdict = re.search(r'<section[^>]*aria-labelledby="verdict-title">.*?</section>', page, re.S).group(0)
-        self.assertIn('<span class="badge badge-muted">Policy: wait</span>', verdict)
+        self.assertIn('<span class="verdict verdict-muted"><span class="verdict-by">Policy</span> wait</span>', verdict)
         self.assertIn(f"policy {item.policy_version}", verdict)
         # Each under its rule, in words: "Waiting for IMDb's parents guide", not "imdb.violence: ... not fetched".
         listed = re.findall(r'<li><span class="tag">([^<]+)</span> ([^<]+)</li>', verdict)
@@ -1550,11 +1552,13 @@ class AuditPageTests(PageCase):
             resp = self.post(f"/inbox/{approved.id}/approve", headers={**HTMX, "HX-Current-URL": "http://testserver/?tab=all"})
         self.assertNotIn("row-left", self.row_of(resp.text, approved.id))
 
-    def test_reject_in_a_row_is_outlined(self) -> None:
+    def test_reject_in_a_row_is_a_word_like_the_others(self) -> None:
+        """The row's actions are words in the accent, not a traffic-light trio; Reject still asks first."""
         self.inbox([self.rows.violent])
         row = self.row_of(self.get("/").text, self.rows.violent.id)
-        self.assertIn('class="btn btn-danger-outline" hx-post=', row)
+        self.assertIn(f'<button class="act" hx-post="/inbox/{self.rows.violent.id}/reject"', row)
         self.assertNotIn('"btn btn-danger"', row)
+        self.assertNotIn("btn-danger-outline", row)
 
     def test_the_needs_you_tab_leads_into_review(self) -> None:
         self.inbox([self.rows.violent])

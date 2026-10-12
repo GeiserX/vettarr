@@ -27,7 +27,7 @@
 {% include "_config_state.html" %}
 
 {% if checklist %}
-<section class="card p-4 mb-4" aria-labelledby="h-checklist">
+<section class="card mb-4" aria-labelledby="h-checklist">
     <h2 class="setup-title" id="h-checklist">Before it does anything</h2>
     <ul class="checklist mt-2">
         {% for item in checklist %}
@@ -57,7 +57,7 @@
     {{ saved_note('sources') }}
 
     {% for chat in hints %}
-    <div class="card p-4 mt-3 border-accent" id="hint-{{ loop.index }}">
+    <div class="card mt-3 border-accent" id="hint-{{ loop.index }}">
         <p><strong>The bot was added to {{ chat.title }}.</strong> Use it as a source?</p>
         <p class="hint">
             {% if chat.is_admin %}It is an admin there, so it sees every message and can delete or react to a post.
@@ -82,7 +82,7 @@
         {% for entry in sources %}
         {% set s = entry.source %}
         {% set failed = entry.form.errors or entry.form.problems %}
-        <div class="card p-4">
+        <div class="card">
             <div class="flex flex-wrap items-center gap-2">
                 <h3 class="font-semibold font-mono">{{ s.key }}</h3>
                 <span class="badge badge-unknown">{{ s.kind }}</span>
@@ -113,7 +113,7 @@
             {% endif %}
         </div>
         {% else %}
-        <p class="card p-4 text-muted lg:col-span-2">No source yet.</p>
+        <p class="card text-muted lg:col-span-2">No source yet.</p>
         {% endfor %}
     </div>
 
@@ -122,7 +122,7 @@
     <div class="space-y-2 mt-2">
         {% for kind, label, what in source_kinds %}
         {% set form = adding[kind] %}
-        <details class="fold card px-4 pb-1" {% if form.errors or form.problems %}open{% endif %}>
+        <details class="fold card pb-1" {% if form.errors or form.problems %}open{% endif %}>
             <summary>{{ label }}</summary>
             <p class="hint">{{ what }}</p>
             <div class="pb-3">{% include "setup/_source_form.html" %}</div>
@@ -133,7 +133,7 @@
 
     <div class="grid gap-3 lg:grid-cols-2 mt-5 items-start">
         {% with card = cards['telegram'] %}{% include "setup/_block.html" %}{% endwith %}
-        <div class="card p-4 setup-section" id="try-a-post">
+        <div class="card setup-section" id="try-a-post">
             <h3 class="font-semibold">Try a post</h3>
             <p class="hint">Paste a post as it arrives. It is read with the source's formats, and nothing is stored.</p>
             {% if try_post %}<p class="notice notice-info mt-2" role="status">The post from the Inbox is below. Read it to see what each format makes of it, then add or change a format under Formats.</p>{% endif %}
@@ -163,7 +163,7 @@
         {% for p in providers %}
         {# The banner and Activity link here. A session that is missing or was refused
            puts "Paste new cookies" first and open: that is the fix, Check now only asks. #}
-        <div class="card p-4 setup-section" id="provider-{{ p.key }}">
+        <div class="card setup-section" id="provider-{{ p.key }}">
             <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
                 <h3 class="font-semibold font-mono">{{ p.key }}</h3>
                 {% if p.paused %}
@@ -212,11 +212,11 @@
             {% if p.cookie and not p.renew %}{{ cookie_form(p, false) }}{% endif %}
         </div>
         {% else %}
-        <p class="card p-4 text-muted lg:col-span-2">No provider. With Prowlarr alone a search still works; a provider adds the exact torrent a post links to, and a direct search when Prowlarr finds nothing. The shipped <code>config.example.yaml</code> has a block to copy for each kind of tracker software.</p>
+        <p class="card text-muted lg:col-span-2">No provider. With Prowlarr alone a search still works; a provider adds the exact torrent a post links to, and a direct search when Prowlarr finds nothing. The shipped <code>config.example.yaml</code> has a block to copy for each kind of tracker software.</p>
         {% endfor %}
     </div>
     {% if providers %}
-    <div class="card p-4 mt-3">
+    <div class="card mt-3">
         <h3 class="font-semibold">Try a link</h3>
         <p class="hint">Paste a tracker link from a post. It says which provider it belongs to and what its patterns read. Nothing is sent.</p>
         <form class="flex flex-wrap items-end gap-2 mt-3" method="post" action="/setup/providers/link" hx-post="/setup/providers/link" hx-target="#link-result" hx-swap="innerHTML">
@@ -246,12 +246,12 @@
     {{ saved_note('formats') }}
     <div class="space-y-2 mt-3">
         {% for form in formats %}
-        <details class="fold card px-4 pb-1" {% if form.errors or form.problems or form.parsed %}open{% endif %}>
+        <details class="fold card pb-1" {% if form.errors or form.problems or form.parsed %}open{% endif %}>
             <summary><span class="font-mono">{{ form.vals.key }}</span><span class="badge badge-unknown">{{ form.vals.kind }}</span></summary>
             <div class="pb-3">{% include "setup/_format_form.html" %}</div>
         </details>
         {% else %}
-        <p class="card p-4 text-muted">No format: every post is read as a release name on its first line.</p>
+        <p class="card text-muted">No format: every post is read as a release name on its first line.</p>
         {% endfor %}
         {% include "setup/_format_new.html" %}
     </div>
