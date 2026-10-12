@@ -157,9 +157,11 @@ Because the pages' tests replace the readers, they never run a query. [`tests/te
 
 **Keys.** A control with `data-key="a"` is clicked by that key, so the key does what the button does. Keys are off in a field and under an open dialog, and a held key acts once: its repeats are dropped, and so are Enter's on a focused button or link. Say the key on the control with `<kbd class="kbd">`.
 
-**Colours** are tokens, set once for light and once for dark in `app.css`. Use them through utilities: `bg-bg`, `bg-surface`, `bg-surface-2`, `border-line`, `text-text`, `text-muted`, `text-accent`, `text-ok`, `text-warn`, `text-danger` and the matching `bg-ok-bg`, `bg-warn-bg`, `bg-danger-bg`. The theme follows the system until the toggle in the nav stores a choice. `dark:` follows the same rule, but a page written with tokens should not need it. The pages written before the tokens use Tailwind's gray scale; those names follow the theme too until each page is rewritten, and the block that does it in `app.css` says to delete it then.
+**Colours** are tokens, set once for light and once for dark in `app.css`. Use them through utilities: `bg-bg`, `bg-surface`, `bg-surface-2`, `border-line`, `text-text`, `text-muted`, `text-accent`, `text-ok`, `text-warn`, `text-danger` and the matching `bg-ok-bg`, `bg-warn-bg`, `bg-danger-bg`. The theme is dark until the toggle in the nav stores light; the system setting is not consulted. `dark:` follows the same rule, but a page written with tokens should not need it. The pages written before the tokens use Tailwind's gray scale; those names follow the theme too until each page is rewritten, and the block that does it in `app.css` says to delete it then.
 
-**Type and spacing** are Tailwind's scale: `text-sm` for dense rows, `text-base` for prose, `page-title` for the page's heading, a 4 px spacing unit.
+**Type and spacing** are Tailwind's scale: `text-sm` for dense rows, `text-base` for prose, `page-title` for the page's heading, a 4 px spacing unit. Fonts are the system's, never downloaded: `--font-sans` for reading, the condensed `--font-display` for titles and figures. Corners are 6 px at most.
+
+**Posters.** `bits.poster(card)` draws a poster, or for an item with none the type's glyph on a muted tile. In the Inbox each item is a poster on a shelf: the title's link covers the tile, and the row's actions are one `popover` block that shows over the poster on hover or focus where there is a pointer, and opens as a sheet from the poster's corner button on a touch screen.
 
 **Components**, all in `app.css`:
 
@@ -168,10 +170,11 @@ Because the pages' tests replace the readers, they never run a query. [`tests/te
 | `btn` with `btn-primary`, `btn-danger`, `btn-danger-outline`, `btn-secondary`, `btn-quiet`; `btn-lg`, `btn-icon` | Buttons. `btn-lg` is the 44 px touch size. Reject on a row, a card or a panel is `btn-danger-outline`; solid `btn-danger` is the confirm dialog's yes. |
 | `card` | A bordered surface. |
 | `label`, `input`, `check` | Form fields. Every input has a label. |
-| `badge` with `badge-<media type>`, `badge-ok`, `badge-warn`, `badge-flag`, `badge-muted` | Small labels. |
+| `badge` with `badge-<media type>`, `badge-ok`, `badge-warn`, `badge-flag`, `badge-muted` | A status as a word with a mark before it (`badge-ok` a tick, `badge-warn` a `!`, `badge-flag` a cross), or a media type as small capitals. Never a filled pill. |
+| `stamp` with `stamp-ok`, `stamp-warn`, `stamp-flag`, `stamp-muted` | The policy's verdict on a poster's corner: a solid tile, a mark and a word. `bits.stamp(card)` draws it. |
 | `tag` | A rule's id or another short code, in monospace. |
 | `select`, `link`, `empty` | A compact select for a filter row, a link inside text, the box a page shows when it has nothing. |
-| `pill` with `pill-none`, `pill-mild`, `pill-moderate`, `pill-severe`, `pill-unknown` | A rating. Always write the word in it (`Violence: severe`); the colour only repeats it. |
+| `pill` with `pill-none`, `pill-mild`, `pill-moderate`, `pill-severe`, `pill-unknown` | A rating. Always write the word in it (`Violence: severe`); the square before it only repeats it. |
 | `notice` with `notice-error`, `notice-warn` | A message inside a page. |
 
 Policy and Setup add their own in [`static/src/forms.css`](../src/vettarr/web/static/src/forms.css), which `app.css` imports:

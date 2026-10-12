@@ -76,10 +76,9 @@
   });
 
   // --- theme ------------------------------------------------------------------
-  // No stored choice: the system's. The toggle stores the other one (<head> sets it before paint).
+  // Dark unless the stored choice is light. The toggle stores the other one (<head> sets it before paint).
   function dark() {
-    const stored = root.dataset.theme;
-    return stored ? stored === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
+    return root.dataset.theme !== 'light';
   }
   function label() {
     const button = document.getElementById('theme-toggle');

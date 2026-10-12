@@ -8,44 +8,48 @@
 <article id="item-panel" class="panel" data-id="{{ card.id }}"
          hx-get="/item/{{ card.id }}" hx-trigger="over-{{ card.id }} from:body" hx-swap="outerHTML">
     <header class="panel-head">
-        {{ bits.poster(card, "panel-poster") }}
-        <div class="min-w-0">
-            <h1 class="panel-title">{{ card.title }}{% if item.year %} <span class="text-muted font-normal">({{ item.year }})</span>{% endif %}</h1>
+        {% if card.poster %}<img class="hero-blur" src="{{ card.poster }}" alt="" aria-hidden="true">{% endif %}
+        <div class="panel-art">{{ bits.poster(card, "panel-poster") }}</div>
+        <div class="panel-intro">
+            <h1 class="panel-title">{{ card.title }}{% if item.year %} <span class="panel-year">({{ item.year }})</span>{% endif %}</h1>
             <p class="row-meta">{{ bits.meta(card) }}</p>
-            <p class="row-verdict">{{ bits.chips(card) }}</p>
+            <div class="verdict-line">
+                {{ bits.stamp(card) }}
+                <span class="badge badge-{{ card.status[1] }}">{{ card.status[0] }}</span>
+            </div>
             {% if card.check and (card.check.tmdb_id or card.check.imdb_id) %}
-            <p class="text-sm mt-2">
+            <p class="panel-links">
                 {% if card.check.tmdb_id %}<a class="link" href="https://www.themoviedb.org/{{ 'tv' if card.media_type == 'series' else 'movie' }}/{{ card.check.tmdb_id }}" target="_blank" rel="noopener noreferrer">TMDB<span class="sr-only"> (opens in a new tab)</span></a>{% endif %}
                 {% if card.check.tmdb_id and card.check.imdb_id %}<span class="text-muted" aria-hidden="true">·</span>{% endif %}
                 {% if card.check.imdb_id %}<a class="link" href="https://www.imdb.com/title/{{ card.check.imdb_id }}/parentalguide" target="_blank" rel="noopener noreferrer">IMDb parents guide<span class="sr-only"> (opens in a new tab)</span></a>{% endif %}
             </p>
             {% endif %}
+
+            <div class="panel-actions">
+                {% if card.can_approve %}
+                <button class="btn btn-primary btn-lg" hx-post="/item/{{ card.id }}/approve" hx-target="#item-panel" hx-swap="outerHTML" hx-disabled-elt="#item-panel button">{{ card.approve_label }}</button>
+                {% endif %}
+                {{ bits.teach(card, "btn btn-secondary btn-lg") }}
+                {% if card.can_reject %}
+                <button class="btn btn-danger-outline btn-lg" hx-post="/item/{{ card.id }}/reject" hx-target="#item-panel" hx-swap="outerHTML" hx-disabled-elt="#item-panel button"
+                        data-confirm-title="{{ card.reject_label }} {{ card.title }}?" data-confirm="{{ card.reject_confirm }}" data-confirm-action="{{ card.reject_label }}">{{ card.reject_label }}</button>
+                {% endif %}
+                {% if card.can_search %}
+                <button class="btn btn-secondary btn-lg" hx-post="/item/{{ card.id }}/search" hx-target="#item-panel" hx-swap="outerHTML" hx-disabled-elt="#item-panel button">Search</button>
+                {% endif %}
+                {% if card.can_rerun %}
+                <button class="btn btn-secondary btn-lg" hx-post="/item/{{ card.id }}/rerun" hx-target="#item-panel" hx-swap="outerHTML" hx-disabled-elt="#item-panel button"
+                        aria-describedby="rerun-says">Rerun policy</button>
+                {% endif %}
+            </div>
+            {% if card.final %}<p class="text-sm text-muted">{{ card.final }}</p>{% endif %}
+            {% if card.can_rerun %}
+            <p id="rerun-says" class="text-sm text-muted">Rerun policy asks TMDB and the parents guide again and decides the item under the policy as it is now. If the lookup finds nothing, the item is left as it is.</p>
+            {% endif %}
         </div>
     </header>
 
-    <div class="panel-actions">
-        {% if card.can_approve %}
-        <button class="btn btn-primary btn-lg" hx-post="/item/{{ card.id }}/approve" hx-target="#item-panel" hx-swap="outerHTML" hx-disabled-elt="#item-panel button">{{ card.approve_label }}</button>
-        {% endif %}
-        {{ bits.teach(card, "btn btn-secondary btn-lg") }}
-        {% if card.can_reject %}
-        <button class="btn btn-danger-outline btn-lg" hx-post="/item/{{ card.id }}/reject" hx-target="#item-panel" hx-swap="outerHTML" hx-disabled-elt="#item-panel button"
-                data-confirm-title="{{ card.reject_label }} {{ card.title }}?" data-confirm="{{ card.reject_confirm }}" data-confirm-action="{{ card.reject_label }}">{{ card.reject_label }}</button>
-        {% endif %}
-        {% if card.can_search %}
-        <button class="btn btn-secondary btn-lg" hx-post="/item/{{ card.id }}/search" hx-target="#item-panel" hx-swap="outerHTML" hx-disabled-elt="#item-panel button">Search</button>
-        {% endif %}
-        {% if card.can_rerun %}
-        <button class="btn btn-secondary btn-lg" hx-post="/item/{{ card.id }}/rerun" hx-target="#item-panel" hx-swap="outerHTML" hx-disabled-elt="#item-panel button"
-                aria-describedby="rerun-says">Rerun policy</button>
-        {% endif %}
-    </div>
-    {% if card.final %}<p class="text-sm text-muted">{{ card.final }}</p>{% endif %}
-    {% if card.can_rerun %}
-    <p id="rerun-says" class="text-sm text-muted">Rerun policy asks TMDB and the parents guide again and decides the item under the policy as it is now. If the lookup finds nothing, the item is left as it is.</p>
-    {% endif %}
-
-    <section class="card panel-section" aria-labelledby="verdict-title">
+    <section class="panel-section" aria-labelledby="verdict-title">
         <h2 id="verdict-title" class="section-title">Verdict</h2>
         {% if card.verdict %}
         <p><span class="badge badge-{{ card.verdict[1] }}">{{ card.verdict[0] }}</span>
@@ -74,7 +78,7 @@
     </section>
 
     {% if d.guide %}
-    <section class="card panel-section" aria-labelledby="guide-title">
+    <section class="panel-section" aria-labelledby="guide-title">
         <h2 id="guide-title" class="section-title">Parents guide votes</h2>
         <div class="guide">
             {% for bar in d.guide %}
@@ -102,7 +106,7 @@
     {% endif %}
 
     {% if card.check %}
-    <section class="card panel-section" aria-labelledby="about-title">
+    <section class="panel-section" aria-labelledby="about-title">
         <h2 id="about-title" class="section-title">About the title</h2>
         {% if card.check.plot %}<p class="text-sm">{{ card.check.plot }}</p>{% endif %}
         <dl class="facts">
@@ -114,27 +118,32 @@
     </section>
     {% endif %}
 
-    <section class="card panel-section" aria-labelledby="releases-title">
+    <section class="panel-section" aria-labelledby="releases-title">
         <h2 id="releases-title" class="section-title">Releases</h2>
         {% for search in d.searches %}
         {% set releases = search.prowlarr_results or [] %}
         <details class="search" {% if loop.first %}open{% endif %}>
             <summary>{{ 'Latest search' if loop.first else 'Earlier search' }} · {{ search.result_count or 0 }} found, {{ releases|length }} stored</summary>
             {% if releases %}
-            <ol class="releases">
+            <div class="releases-wrap">
+            <table class="releases">
+                <thead><tr><th scope="col">Release</th><th scope="col" class="num">Size</th><th scope="col" class="num">Seeders</th><th scope="col" class="rel-indexer">Indexer</th>{% if card.can_grab %}<th scope="col"><span class="sr-only">Grab</span></th>{% endif %}</tr></thead>
+                <tbody>
                 {% for r in releases %}
-                <li>
-                    <div class="min-w-0">
-                        <p class="release-title">{{ r.title }}</p>
-                        <p class="text-sm text-muted">{{ r.size|size_fmt }} · {{ r.seeders or 0 }} seeders{% if r.indexer %} · {{ r.indexer }}{% endif %}</p>
-                    </div>
+                <tr>
+                    <td class="release-title">{{ r.title }}</td>
+                    <td class="num">{{ r.size|size_fmt }}</td>
+                    <td class="num">{{ r.seeders or 0 }}</td>
+                    <td class="rel-indexer">{{ r.indexer or '' }}</td>
                     {% if card.can_grab %}
-                    <button class="btn btn-primary" hx-post="/item/{{ card.id }}/download/{{ search.id }}/{{ loop.index0 }}" hx-target="#item-panel" hx-swap="outerHTML" hx-disabled-elt="#item-panel button"
-                            aria-label="Grab {{ r.title }}">Grab</button>
+                    <td class="rel-grab"><button class="btn btn-secondary" hx-post="/item/{{ card.id }}/download/{{ search.id }}/{{ loop.index0 }}" hx-target="#item-panel" hx-swap="outerHTML" hx-disabled-elt="#item-panel button"
+                            aria-label="Grab {{ r.title }}">Grab</button></td>
                     {% endif %}
-                </li>
+                </tr>
                 {% endfor %}
-            </ol>
+                </tbody>
+            </table>
+            </div>
             {% else %}
             <p class="text-sm text-muted">This search found nothing.</p>
             {% endif %}
@@ -145,13 +154,13 @@
     </section>
 
     {% if card.download %}
-    <section class="card panel-section" aria-labelledby="download-title">
+    <section class="panel-section" aria-labelledby="download-title">
         <h2 id="download-title" class="section-title">Download</h2>
         {% include "partials/download.html" %}
     </section>
     {% endif %}
 
-    <section class="card panel-section" aria-labelledby="post-title">
+    <section class="panel-section" aria-labelledby="post-title">
         <h2 id="post-title" class="section-title">The post</h2>
         <p class="text-sm text-muted">{% if item.source_key %}From {{ item.source_key }}{% endif %}{% if d.post_link %} · <a class="link" href="{{ d.post_link }}" target="_blank" rel="noopener noreferrer">Open the post in Telegram<span class="sr-only"> (opens in a new tab)</span></a>{% endif %}</p>
         <pre class="post-text">{{ item.raw_text }}</pre>
@@ -162,7 +171,7 @@
         {% endif %}
     </section>
 
-    <section class="card panel-section" aria-labelledby="history-title">
+    <section class="panel-section" aria-labelledby="history-title">
         <h2 id="history-title" class="section-title">History</h2>
         <ol class="history">
             {% for moment in d.history %}<li><time datetime="{{ moment.at.isoformat() }}">{{ moment.when }}</time><span>{{ moment.text }}</span></li>{% endfor %}

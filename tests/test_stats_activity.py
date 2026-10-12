@@ -862,11 +862,12 @@ class NeedsYouQueryTests(unittest.TestCase):
 
 
 class StylesheetTests(unittest.TestCase):
-    def test_every_chart_colour_is_set_for_light_and_for_dark(self) -> None:
+    def test_every_chart_colour_is_set_for_dark_and_for_light(self) -> None:
         css = (WEB_DIR / "static" / "src" / "app.css").read_text()
         for outcome in stats.OUTCOMES:
             with self.subTest(outcome=outcome):
-                self.assertEqual(len(re.findall(rf"--chart-{outcome}: #[0-9a-f]{{6}};", css)), 3)
+                # Once in the dark tokens (the default), once in the light block.
+                self.assertEqual(len(re.findall(rf"--chart-{outcome}: #[0-9a-f]{{6}};", css)), 2)
                 self.assertRegex(css, rf"\.chart-{outcome} \{{ fill: var\(--chart-{outcome}\)")
 
 

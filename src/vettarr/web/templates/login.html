@@ -1,9 +1,13 @@
 {% extends "base.html" %}
 {% block title %}Sign in · vettarr{% endblock %}
 {% block shell %}
+{# The shelf behind the plate: the demo posters this image ships, blurred by
+   app.css. Nothing here is a user's data, and nothing is fetched from elsewhere. #}
+<div class="login-wall" aria-hidden="true">{% for n in range(48) %}<span></span>{% endfor %}</div>
 <main id="main" class="login" tabindex="-1">
-    <div class="card login-card">
-        <div class="flex justify-center mb-6">{% include "_mark.html" %}</div>
+    <div class="login-card">
+        <div class="login-mark">{% include "_mark.html" %}</div>
+        <p class="login-line">Every post, checked before it downloads.</p>
         <h1 class="sr-only">Sign in to vettarr</h1>
         {% if locked_minutes %}
         <div class="notice notice-warn" role="alert">

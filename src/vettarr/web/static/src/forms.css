@@ -9,9 +9,11 @@
      panel's and the Stats cards'. */
   .setup-title {
     color: var(--text);
-    font-size: 1.125rem;
-    line-height: 1.5rem;
-    font-weight: 600;
+    font-family: var(--font-display);
+    font-size: 1.375rem;
+    line-height: 1.75rem;
+    font-weight: 700;
+    letter-spacing: 0.005em;
   }
   .hint {
     margin-top: 0.25rem;
@@ -36,9 +38,6 @@
   .notice-ok {
     background: var(--ok-bg);
     color: var(--ok);
-  }
-  .badge-unknown {
-    border: 1px solid var(--line);
   }
 
   /* --- fields ---------------------------------------------------------------- */
@@ -132,13 +131,19 @@
     padding: 0;
     border: 0;
   }
+  /* A segment of the scale: a box with its square and its word. */
   .sev-chips label {
     min-height: 2.5rem;
-    padding: 0.25rem 0.625rem;
+    padding: 0.25rem 0.75rem;
     background: transparent;
+    border: 1px solid var(--line);
     border-style: dashed;
+    border-radius: 0.375rem;
     font-size: 0.875rem;
     cursor: pointer;
+  }
+  .sev-chips label:hover {
+    border-color: var(--muted);
   }
   .sev-chips .sev-mark {
     display: none;
@@ -150,6 +155,8 @@
   .sev-chips input:checked + label {
     border-style: solid;
     border-width: 2px;
+    border-color: var(--text);
+    font-weight: 700;
   }
   .sev-chips input:checked + label .sev-mark {
     display: inline;
@@ -181,7 +188,7 @@
     align-items: flex-start;
     padding: 0.75rem;
     border: 1px solid var(--line);
-    border-radius: 0.5rem;
+    border-radius: 0.375rem;
     cursor: pointer;
   }
   .option-card input {
@@ -192,8 +199,8 @@
     accent-color: var(--accent);
   }
   .option-card:has(input:checked) {
-    border-color: var(--accent);
-    box-shadow: inset 0 0 0 1px var(--accent);
+    border-color: var(--text);
+    box-shadow: inset 0 0 0 1px var(--text);
     background: var(--surface-2);
   }
   .option-card:has(input:focus-visible) {
@@ -290,7 +297,7 @@
     padding: 0.75rem 1rem;
     background: var(--surface);
     border: 1px solid var(--line);
-    border-radius: 0.5rem;
+    border-radius: 0.375rem;
     box-shadow: var(--shadow);
   }
   @media (max-width: 639.98px) {
@@ -305,10 +312,11 @@
   .stat {
     padding: 0.75rem;
     background: var(--surface-2);
-    border-radius: 0.5rem;
+    border-radius: 0.375rem;
   }
   .stat-number {
-    font-size: 1.5rem;
+    font-family: var(--font-display);
+    font-size: 1.75rem;
     line-height: 2rem;
     font-weight: 700;
     font-variant-numeric: tabular-nums;
@@ -333,7 +341,7 @@
     flex: none;
     padding: 0.375rem 0.75rem;
     border: 1px solid var(--line);
-    border-radius: 9999px;
+    border-radius: 0.375rem;
     background: var(--surface);
     font-size: 0.875rem;
     font-weight: 500;

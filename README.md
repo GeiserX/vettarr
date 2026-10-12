@@ -17,12 +17,12 @@ You see a film somewhere: a link a friend sends, a post in a Telegram group, a m
 
 <table>
   <tr>
-    <td><img src="https://raw.githubusercontent.com/GeiserX/vettarr/main/docs/images/ui/inbox-1280-light.png" alt="The Inbox: items grouped by what they need, with the policy's verdict on each"></td>
-    <td><img src="https://raw.githubusercontent.com/GeiserX/vettarr/main/docs/images/ui/item-1280-light.png" alt="An item: the verdict, every reason tagged by the rule that gave it, and the releases found"></td>
+    <td><img src="https://raw.githubusercontent.com/GeiserX/vettarr/main/docs/images/ui/inbox-1280-dark.png" alt="The Inbox: items grouped by what they need, with the policy's verdict on each"></td>
+    <td><img src="https://raw.githubusercontent.com/GeiserX/vettarr/main/docs/images/ui/item-1280-dark.png" alt="An item: the verdict, every reason tagged by the rule that gave it, and the releases found"></td>
   </tr>
   <tr>
-    <td><img src="https://raw.githubusercontent.com/GeiserX/vettarr/main/docs/images/ui/policy-1280-light.png" alt="The Policy page: rules as sentences, with a preview of what a change would do"></td>
-    <td><img src="https://raw.githubusercontent.com/GeiserX/vettarr/main/docs/images/ui/stats-1280-light.png" alt="Stats: decisions per day and the reasons behind them"></td>
+    <td><img src="https://raw.githubusercontent.com/GeiserX/vettarr/main/docs/images/ui/policy-1280-dark.png" alt="The Policy page: rules as sentences, with a preview of what a change would do"></td>
+    <td><img src="https://raw.githubusercontent.com/GeiserX/vettarr/main/docs/images/ui/stats-1280-dark.png" alt="Stats: decisions per day and the reasons behind them"></td>
   </tr>
 </table>
 
