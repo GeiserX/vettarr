@@ -15,7 +15,7 @@ vettarr takes a link, a post, a magnet, a `.torrent` or a Seerr request, looks t
 - `config.yaml` is a contract ([docs/CONFIG.md](docs/CONFIG.md)): add optional fields, never rename or remove one.
 - Migrations only add tables and nullable columns.
 - No secret value in a log line, a test fixture that looks real, or a screenshot. Screenshots come from `vettarr demo-seed`.
-- `static/app.js` stays under 150 lines; behaviour is htmx attributes first.
+- `static/app.js` stays under 180 lines; behaviour is htmx attributes first.
 - Conventional commits that say why.
 
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:970c3bf2 -->

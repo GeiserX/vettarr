@@ -19,7 +19,9 @@
 // refused bulk action says so and one with no session goes to the login page,
 // a 409 from a row's button is a toast, the title opens the item in the
 // slide-over, and the download block stops asking once an answer says the
-// download is over and the panel around it reads the item again.
+// download is over and the panel around it reads the item again. With a
+// keyboard, J and K move the focus from row to row and A and R act on the row
+// that has it, and on no row while none has.
 // Review: each key clicks its button (never under a dialog, never with Ctrl),
 // a held key acts once (A, S, and Enter on a focused button), Grab is offered
 // only with a release to take, ? folds the legend, J and K move, and on a
@@ -479,6 +481,32 @@ async function swipe(page, dx) {
     await board.keyboard.press('a');
     await settle(board);
     check('O opens the item, and no key acts under it', (await drawerOpen(board)) && keyed.length === sentSoFar, keyed);
+
+    // --- the Inbox with a keyboard ---------------------------------------------
+    // A, R and S act on the row that holds the focus, never on the first row by default.
+    await board.goto(`${BASE}/?tab=needs`, { waitUntil: 'networkidle' });
+    const rowKeyed = await hold(board, '**/inbox/*/*', 409, BUSY);
+    await board.keyboard.press('a');
+    await settle(board);
+    check('in the Inbox A acts on no row while none has the focus', rowKeyed.length === 0, rowKeyed);
+    const focusedRow = () => board.evaluate(() => {
+      const row = document.activeElement.closest('article.row');
+      return row ? row.dataset.id : null;
+    });
+    await board.keyboard.press('j');
+    const firstRow = await focusedRow();
+    await board.keyboard.press('j');
+    const secondRow = await focusedRow();
+    await board.keyboard.press('k');
+    check('J and K move the focus from row to row', firstRow && secondRow && firstRow !== secondRow && (await focusedRow()) === firstRow, { firstRow, secondRow });
+    await board.keyboard.press('a');
+    await settle(board);
+    check('A approves the row with the focus, once', rowKeyed.join() === `/inbox/${firstRow}/approve`, rowKeyed);
+    await board.keyboard.press('r');
+    await settle(board);
+    const rowAsks = await board.evaluate(() => document.getElementById('confirm').open);
+    await board.keyboard.press('Escape');
+    check('R on a row asks first and sends nothing', rowAsks && rowKeyed.length === 1, { rowAsks, rowKeyed });
     await desk.close();
 
     // --- signing out ---------------------------------------------------------

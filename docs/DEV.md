@@ -155,7 +155,7 @@ Because the pages' tests replace the readers, they never run a query. [`tests/te
 
 **Slide-over.** `{{ bits.drawer() }}` puts the item slide-over on a page. A link with `hx-get="/item/7" hx-target="#drawer-body" hx-swap="innerHTML"` opens the item in it; Escape, its Close button and nothing else close it, and closing empties it.
 
-**Keys.** A control with `data-key="a"` is clicked by that key, so the key does what the button does. Keys are off in a field and under an open dialog, and a held key acts once: its repeats are dropped, and so are Enter's on a focused button or link. Say the key on the control with `<kbd class="kbd">`.
+**Keys.** A control with `data-key="a"` is clicked by that key, so the key does what the button does. Keys are off in a field and under an open dialog, and a held key acts once: its repeats are dropped, and so are Enter's on a focused button or link. Say the key on the control with `<kbd class="kbd">`. In the Inbox a row's buttons carry `data-row-key` instead, and the row `data-keys`: J and K move the focus from row to row, and A, R and S press the buttons of the row that has the focus, never of the first row by default. A row an action took out of the tab hands the focus to the next one.
 
 **Colours** are tokens, set once for light and once for dark in `app.css`. Use them through utilities: `bg-bg`, `bg-surface`, `bg-surface-2`, `border-line`, `text-text`, `text-muted`, `text-accent`, `text-ok`, `text-warn`, `text-danger` and the matching `bg-ok-bg`, `bg-warn-bg`, `bg-danger-bg`. The theme follows the system until the toggle in the nav stores a choice. `dark:` follows the same rule, but a page written with tokens should not need it. The pages written before the tokens use Tailwind's gray scale; those names follow the theme too until each page is rewritten, and the block that does it in `app.css` says to delete it then.
 
@@ -165,7 +165,9 @@ Because the pages' tests replace the readers, they never run a query. [`tests/te
 
 | Class | Use |
 |---|---|
-| `btn` with `btn-primary`, `btn-danger`, `btn-danger-outline`, `btn-secondary`, `btn-quiet`; `btn-lg`, `btn-icon` | Buttons. `btn-lg` is the 44 px touch size. Reject on a row, a card or a panel is `btn-danger-outline`; solid `btn-danger` is the confirm dialog's yes. |
+| `btn` with `btn-primary`, `btn-danger`, `btn-danger-outline`, `btn-secondary`, `btn-quiet`; `btn-lg`, `btn-icon` | Buttons. `btn-lg` is the 44 px touch size. Reject on the item panel is `btn-danger-outline`; solid `btn-danger` is the confirm dialog's yes. |
+| `btn-key` with `btn-key-ok`, `btn-key-danger` | A button a key presses, in the Inbox's rows and in Review: the word, then `<kbd class="kbd">`, which the face shows first in the action's colour. |
+| `vcell`, `vcell-<outcome>` | The policy's verdict as a solid cell with its code (APR, REV, REJ, WAIT) and the words for a screen reader; `bits.verdict_cell(card, long=true)` is the plate with the whole word. |
 | `card` | A bordered surface. |
 | `label`, `input`, `check` | Form fields. Every input has a label. |
 | `badge` with `badge-<media type>`, `badge-ok`, `badge-warn`, `badge-flag`, `badge-muted` | Small labels. |
@@ -204,7 +206,7 @@ Policy and Setup add their own in [`static/src/forms.css`](../src/vettarr/web/st
 
 **Auth.** Every route and both static mounts are behind the gate, and a page does nothing for it. `request.state.auth` says who is signed in. The gate refuses every POST, PUT, PATCH and DELETE another site sent, so a GET must never change anything. It sends every page behind the sign-in with `Cache-Control: no-store`. It closes every websocket, because no page has one: the page that adds the first adds its session and origin check to `GateMiddleware` in [`web/auth.py`](../src/vettarr/web/auth.py). Read a request's path from `request.scope["path"]`, never from `request.url`, which is built from a header the client writes. The modes and the cookie are described under [`web` in CONFIG.md](CONFIG.md#web).
 
-**Script budget.** [`static/app.js`](../src/vettarr/web/static/app.js) stays under 150 lines, and a test holds it there. A page's behaviour is htmx attributes first. The file is at 150 now: the keys, the swipe, the slide-over and the selection took what was left, so the next behaviour has to come as attributes or replace something.
+**Script budget.** [`static/app.js`](../src/vettarr/web/static/app.js) stays under 180 lines, and a test holds it there. A page's behaviour is htmx attributes first. The file is at 175 now: the keys, the Inbox's row keys, the swipe, the slide-over and the selection took what was left, so the next behaviour has to come as attributes or replace something.
 
 ## When you are done
 

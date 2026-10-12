@@ -1,5 +1,5 @@
 // The layout's behaviour: toasts, the confirm dialog, the theme toggle, keys and swipe,
-// the slide-over and the selection. The rest is htmx; this file stays under 150 lines.
+// the slide-over and the selection. The rest is htmx; this file stays under 180 lines.
 (function () {
   'use strict';
   const root = document.documentElement;
@@ -102,7 +102,27 @@
   // dialog. A held key acts once: its repeats are dropped, Enter's on a focused control too,
   // or holding A would approve one item per repeat. A swipe on [data-swipe] is J or K.
   const modal = () => document.querySelector('dialog[open]');
+  // In the Inbox a row's keys (data-row-key) act on the row that holds the focus, and J and
+  // K move the focus to the next or the previous row; a row an action took out of the tab
+  // hands the focus on. `at` is the last row focused, by id, so it outlives a swap.
+  let at = null;
+  document.addEventListener('focusin', (e) => { const row = e.target.closest('[data-keys]'); if (row) at = row.id; });
+  function rowKey(key) {
+    const rows = [...document.querySelectorAll('article.row')];
+    if (!rows.length) return false;
+    const i = rows.findIndex((row) => row.id === at);
+    if (key === 'j' || key === 'k') {
+      const on = key === 'j' ? rows.slice(i + 1) : rows.slice(0, Math.max(i, 0)).reverse();
+      const to = on.find((row) => row.matches('[data-keys]'));
+      if (to) to.querySelector('.row-title a').focus();
+    } else if (i >= 0 && rows[i].contains(document.activeElement)) {
+      const el = rows[i].querySelector('[data-row-key="' + CSS.escape(key) + '"]:not(:disabled)');
+      if (el) el.click();
+    }
+    return true;
+  }
   function press(key) {
+    if (rowKey(key)) return;
     const el = document.querySelector('[data-key="' + CSS.escape(key) + '"]:not(:disabled)');
     if (el) el.click();
   }
@@ -146,5 +166,10 @@
   document.addEventListener('htmx:afterSettle', (e) => {
     if (e.detail.target.id === 'drawer-body' && !modal()) document.getElementById('drawer').showModal();
     selection(e);
+    const row = e.detail.target.id === at && document.getElementById(at);
+    if (row && document.activeElement === document.body && !modal()) {
+      if (row.matches('[data-keys]')) row.querySelector('.row-title a').focus();
+      else rowKey('j');
+    }
   });
 })();

@@ -46,6 +46,7 @@ async def index(request: Request, tab: str | None = None, page: str | None = Non
         "inbox": inbox,
         "media_types": [t.value for t in MediaType],
         "outcomes": policy.OUTCOMES,
+        "sort_link": cards.sort_link,
     })
 
 

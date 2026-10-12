@@ -3,13 +3,28 @@
 
 {% macro poster(card, cls="poster") -%}
 {% if card.poster %}<img class="{{ cls }}" src="{{ card.poster }}" alt="" loading="lazy" width="96" height="144">
-{%- else %}<span class="{{ cls }} poster-none" aria-hidden="true">?</span>{% endif %}
+{%- else %}<span class="{{ cls }} poster-none" aria-hidden="true">{{ card.media_type[:3] if card.media_type != 'unknown' else '---' }}</span>{% endif %}
 {%- endmacro %}
 
 {# `hide`: a status the page already says, such as the open tab's own name. #}
 {% macro chips(card, hide='') -%}
 {% if card.status[0] != hide %}<span class="badge badge-{{ card.status[1] }}">{{ card.status[0] }}</span>{% endif %}
 {% if card.verdict %}<span class="badge badge-{{ card.verdict[1] }}">{{ card.verdict[0] }}</span>{% endif %}
+{%- endmacro %}
+
+{# The policy's verdict as a solid cell with a code, the console's left edge. The code and
+   the words read out say what the colour says. #}
+{# `long`: the whole word, for a heading's plate; a row has room for the code. #}
+{% macro verdict_cell(card, long=false) -%}
+{% set code = {'approve': 'APR', 'review': 'REV', 'reject': 'REJ', 'wait': 'WAIT'} %}
+{% set said = card.verdict[0] if card.verdict else 'No policy verdict' %}
+{%- if long %}<span class="vcell vcell-lg vcell-{{ card.outcome or 'none' }}">{{ said }}</span>
+{%- else %}<span class="vcell vcell-{{ card.outcome or 'none' }}" title="{{ said }}"><span class="vcell-code" aria-hidden="true">{{ code[card.outcome] if card.outcome else '---' }}</span><span class="sr-only">{{ said }}</span></span>{% endif %}
+{%- endmacro %}
+
+{# The status alone, for a heading whose plate already says the verdict. #}
+{% macro status(card) -%}
+<span class="badge badge-{{ card.status[1] }}">{{ card.status[0] }}</span>
 {%- endmacro %}
 
 {% macro meta(card) -%}

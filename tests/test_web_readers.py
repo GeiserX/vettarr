@@ -144,6 +144,20 @@ class InboxReaderTests(ReaderCase):
         everything = run(cards.load_inbox(cards.tab_of("all"), cards.Filters()))
         self.assertEqual([c.id for c in everything.cards], [13, 12, 11, 3, 2, 1])
 
+    def test_a_sorted_column_orders_the_list_and_a_tie_keeps_the_age(self) -> None:
+        self.item(1, title="Bravo", source_key="demo-group")
+        self.item(2, title="Alpha", source_key="demo-bot")
+        self.item(3, title="Bravo", source_key="demo-bot")
+        self.item(4, title=None, source_key=None)
+        needs = cards.tab_of("needs")
+        order = lambda sort: [c.id for c in run(cards.load_inbox(needs, cards.Filters(sort=sort))).cards]  # noqa: E731
+        self.assertEqual(order("title"), [2, 1, 3, 4])
+        # The other way round; an item with no title stays last either way.
+        self.assertEqual(order("-title"), [1, 3, 2, 4])
+        self.assertEqual(order("source"), [2, 3, 1, 4])
+        self.assertEqual(order("-age"), [4, 3, 2, 1])
+        self.assertEqual(order(""), [1, 2, 3, 4])
+
     def test_a_tab_holds_its_statuses_and_every_tab_is_counted(self) -> None:
         for n, status in enumerate(
             (_S.PENDING_REVIEW, _S.ERROR, _S.PARSE_FAILED, _S.AWAITING_DATA, _S.NO_MATCH, _S.COMPLETED, _S.REJECTED, _S.IGNORED),

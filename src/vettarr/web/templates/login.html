@@ -3,7 +3,9 @@
 {% block shell %}
 <main id="main" class="login" tabindex="-1">
     <div class="card login-card">
-        <div class="flex justify-center mb-6">{% include "_mark.html" %}</div>
+        <div class="login-bar" aria-hidden="true"><span>vettarr</span><span>{{ 'locked' if locked_minutes else 'sign in' }}</span></div>
+        <div class="login-body">
+        <div class="login-mark">{% include "_mark.html" %}</div>
         <h1 class="sr-only">Sign in to vettarr</h1>
         {% if locked_minutes %}
         <div class="notice notice-warn" role="alert">
@@ -21,7 +23,7 @@
         <form method="post" action="/login">
             <input type="hidden" name="next" value="{{ next }}">
             <label class="label" for="password">Password</label>
-            <input class="input" type="password" id="password" name="password" required autofocus
+            <input class="input input-mono" type="password" id="password" name="password" required autofocus
                    autocomplete="current-password" {% if error %}aria-invalid="true" aria-describedby="login-error"{% endif %}>
             <label class="check mt-3">
                 <input type="checkbox" name="remember" value="1">
@@ -30,6 +32,7 @@
             <button class="btn btn-primary btn-lg w-full mt-4">Sign in</button>
         </form>
         {% endif %}
+        </div>
     </div>
 </main>
 {% endblock %}

@@ -1,17 +1,21 @@
 {% import "partials/bits.html" as bits %}
-{# One item in the Inbox. The row reads itself again when the item drawer
-   announces a change (item-<id>); its own buttons are answered with this row.
-   An item that has left the open tab shrinks to one line, so the queue
-   visibly gets shorter, and its title still opens it. #}
+{# One item in the Inbox: a row of the table in inbox.html. The row reads itself
+   again when the item drawer announces a change (item-<id>); its own buttons are
+   answered with this row. An item that has left the open tab shrinks to one line,
+   so the queue visibly gets shorter, and its title still opens it.
+   data-keys: A, R and S press the row's buttons (data-row-key) while the focus is
+   in the row, and J and K move the focus between rows (static/app.js). #}
 {% set left = tab is defined and tab and tab.statuses is not none and card.item.status not in tab.statuses %}
 <article id="row-{{ card.id }}" class="row{{ ' row-left' if left }}" data-id="{{ card.id }}" {% if oob %}hx-swap-oob="true"{% endif %}
-         hx-get="/inbox/row/{{ card.id }}" hx-trigger="item-{{ card.id }} from:body" hx-swap="outerHTML">
+         hx-get="/inbox/row/{{ card.id }}" hx-trigger="item-{{ card.id }} from:body" hx-swap="outerHTML"{% if not left and card.selectable %} data-keys{% endif %}>
     {% if left %}
     <p class="row-left-line">
+        {{ bits.verdict_cell(card) }}
         <a class="link font-semibold" href="/item/{{ card.id }}" hx-get="/item/{{ card.id }}" hx-target="#drawer-body" hx-swap="innerHTML">{{ card.title }}</a>
         <span class="badge badge-{{ card.status[1] }}">{{ card.status[0] }}</span>
     </p>
     {% else %}
+    {{ bits.verdict_cell(card) }}
     {% if card.selectable %}
     <label class="row-select"><input type="checkbox" name="ids" value="{{ card.id }}"><span class="sr-only">Select {{ card.title }}</span></label>
     {% else %}
@@ -21,32 +25,43 @@
     <div class="row-main">
         <h2 class="row-title">
             <a class="tap" href="/item/{{ card.id }}" hx-get="/item/{{ card.id }}" hx-target="#drawer-body" hx-swap="innerHTML">{{ card.title }}</a>
-            {% if card.item.year %}<span class="text-muted font-normal">({{ card.item.year }})</span>{% endif %}
+            {% if card.item.year %}<span class="row-year">({{ card.item.year }})</span>{% endif %}
         </h2>
-        <p class="row-meta">{{ bits.meta(card) }}</p>
-        <p class="row-verdict">{{ bits.chips(card, tab.label if tab is defined and tab else '') }}
-            {% set lines = card.row_reasons %}
-            {% if card.failed %}<span class="row-reason">{{ card.failed }}</span>
-            {% elif card.lead %}<span class="row-reason" title="{{ lines|map(attribute='text')|join('; ') }}">{{ card.lead.text }}{% if lines|length > 1 %} <span class="text-muted">+{{ lines|length - 1 }} more</span>{% endif %}</span>
-            {% endif %}
+        <p class="row-byline">
+            {%- set hide = tab.label if tab is defined and tab else '' %}
+            {% if card.status[0] != hide %}<span class="badge badge-{{ card.status[1] }}">{{ card.status[0] }}</span>{% endif %}
+            {% if card.item.season %}<span>{{ card.item.season }}</span>{% endif %}
+            {% if card.item.size_text %}<span>{{ card.item.size_text }}</span>{% endif %}
+            {% if card.item.quality or card.item.source %}<span>{{ card.item.quality or '' }} {{ card.item.source or '' }}</span>{% endif %}
         </p>
-        {{ bits.pills(card, row=true) }}
-        {{ bits.best(card, row=true) }}
+        {% set lines = card.row_reasons %}
+        {% if card.failed or card.lead or card.row_pills or card.guide_expected %}
+        <div class="row-why">
+            {% if card.failed %}<p class="row-reason row-failed">{{ card.failed }}</p>
+            {% elif card.lead %}<p class="row-reason" title="{{ lines|map(attribute='text')|join('; ') }}">{{ card.lead.text }}{% if lines|length > 1 %} <span class="text-muted">+{{ lines|length - 1 }} more</span>{% endif %}</p>
+            {% endif %}
+            {{ bits.pills(card, row=true) }}
+        </div>
+        {% endif %}
     </div>
-    {% if card.selectable or card.unreadable %}
+    <p class="row-meta">
+        <span class="cell-type"><span class="badge badge-{{ card.media_type }}">{{ card.media_type }}</span></span>
+        <span class="cell-source">{% if card.item.source_key %}<span class="sr-only">from </span>{{ card.item.source_key }}{% endif %}</span>
+        <span class="cell-age">{{ card.age }}</span>
+    </p>
+    <div class="cell-best">{{ bits.best(card, row=true) }}</div>
     <div class="row-actions">
         {% if card.can_approve %}
-        <button class="btn btn-primary" hx-post="/inbox/{{ card.id }}/approve" hx-target="#row-{{ card.id }}" hx-swap="outerHTML" hx-disabled-elt="#row-{{ card.id }} button">{{ card.approve_label }}</button>
+        <button class="btn btn-key btn-key-ok" data-row-key="a" hx-post="/inbox/{{ card.id }}/approve" hx-target="#row-{{ card.id }}" hx-swap="outerHTML" hx-disabled-elt="#row-{{ card.id }} button">{{ card.approve_label }} <kbd class="kbd">A</kbd></button>
         {% endif %}
-        {{ bits.teach(card) }}
+        {{ bits.teach(card, "btn btn-key") }}
         {% if card.can_reject %}
-        <button class="btn btn-danger-outline" hx-post="/inbox/{{ card.id }}/reject" hx-target="#row-{{ card.id }}" hx-swap="outerHTML" hx-disabled-elt="#row-{{ card.id }} button"
-                data-confirm-title="{{ card.reject_label }} {{ card.title }}?" data-confirm="{{ card.reject_confirm }}" data-confirm-action="{{ card.reject_label }}">{{ card.reject_label }}</button>
+        <button class="btn btn-key btn-key-danger" data-row-key="r" hx-post="/inbox/{{ card.id }}/reject" hx-target="#row-{{ card.id }}" hx-swap="outerHTML" hx-disabled-elt="#row-{{ card.id }} button"
+                data-confirm-title="{{ card.reject_label }} {{ card.title }}?" data-confirm="{{ card.reject_confirm }}" data-confirm-action="{{ card.reject_label }}">{{ card.reject_label }} <kbd class="kbd">R</kbd></button>
         {% endif %}
         {% if card.can_search %}
-        <button class="btn btn-secondary" hx-post="/inbox/{{ card.id }}/search" hx-target="#row-{{ card.id }}" hx-swap="outerHTML" hx-disabled-elt="#row-{{ card.id }} button">Search</button>
+        <button class="btn btn-key" data-row-key="s" hx-post="/inbox/{{ card.id }}/search" hx-target="#row-{{ card.id }}" hx-swap="outerHTML" hx-disabled-elt="#row-{{ card.id }} button">Search <kbd class="kbd">S</kbd></button>
         {% endif %}
     </div>
-    {% endif %}
     {% endif %}
 </article>

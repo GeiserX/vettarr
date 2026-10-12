@@ -557,7 +557,9 @@ class InboxPageTests(PageCase):
         self.assertIn(f"<span>{item.size_text}</span>", row)
         # The open tab already says "Needs you": every row repeating it was noise.
         self.assertNotIn('<span class="badge badge-warn">Needs you</span>', row)
-        self.assertIn('<span class="badge badge-warn">Policy: review</span>', row)
+        # The verdict is the row's first cell: a code on its colour, and the words read out.
+        self.assertIn('<span class="vcell vcell-review" title="Policy: review"><span class="vcell-code" aria-hidden="true">REV</span>'
+                      '<span class="sr-only">Policy: review</span></span>', row)
         best = item.torrent_searches[0].prowlarr_results[0]
         self.assertIn(f'<span class="release-title" title="{best["title"]}">{best["title"]}</span>', row)
         self.assertIn(f'{best["seeders"]} seeders', row)
@@ -602,9 +604,9 @@ class InboxPageTests(PageCase):
         # A post nothing could read has no title to approve: it is dismissed, or a format is taught.
         self.assertEqual(offered(unread), {"reject"})
         self.assertIn(f'href="/setup?try={unread.id}#try-a-post">Teach a format</a>', self.row_of(page, unread.id))
-        self.assertIn('data-confirm-action="Dismiss">Dismiss</button>', self.row_of(page, unread.id))
+        self.assertIn('data-confirm-action="Dismiss">Dismiss <kbd class="kbd">R</kbd></button>', self.row_of(page, unread.id))
         self.assertEqual(offered(self.rows.rejected_by_policy), {"approve"})
-        self.assertIn(">Approve anyway</button>", self.row_of(page, self.rows.rejected_by_policy.id))
+        self.assertIn(">Approve anyway <kbd class=\"kbd\">A</kbd></button>", self.row_of(page, self.rows.rejected_by_policy.id))
         self.assertNotIn('name="ids"', self.row_of(page, done.id))
         self.assertIn("Select all 3 on this page", page)
         self.assertIn('data-confirm="Its post stays where it is."', self.row_of(page, unread.id))
@@ -647,7 +649,7 @@ class InboxPageTests(PageCase):
         self.inbox([item])
         page = self.get("/").text
         self.assertIn(f'<input type="checkbox" name="ids" value="{item.id}"><span class="sr-only">Select {esc(item.title)}</span>', page)
-        self.assertIn("<input type=\"checkbox\" data-select-all> Select all 1 on this page", page)
+        self.assertIn('<input type="checkbox" data-select-all> <span class="sr-only">Select all 1 on this page</span>', page)
         bar = re.search(r'<div id="bulk-bar" class="bulk-bar" hidden>.*?</div>', page, re.S).group(0)
         self.assertIn('<span data-count role="status">', bar)
         self.assertEqual(re.findall(r'hx-post="/bulk/(\w+)"', bar), ["approve", "reject"])
@@ -677,6 +679,35 @@ class InboxPageTests(PageCase):
                 resp = self.get("/", params={"page": asked})
                 self.assertEqual(resp.status_code, 200)
                 self.assertEqual(self.load_inbox.await_args.args[2], page_number)
+
+    def test_a_column_header_sorts_the_list_and_a_second_click_turns_it(self) -> None:
+        self.inbox([self.rows.violent])
+        page = self.get("/?tab=done&type=movie").text
+        self.assertIn('<a class="th-sort" href="/?type=movie&amp;sort=title&amp;tab=done">Title', page)
+        self.assertEqual(self.load_inbox.await_args.args[1].sort, "")
+        page = self.get("/?tab=done&type=movie&sort=title").text
+        self.assertEqual(self.load_inbox.await_args.args[1], cards.Filters(type="movie", sort="title"))
+        self.assertIn('<a class="th-sort" href="/?type=movie&amp;sort=-title&amp;tab=done" data-order="ascending">Title', page)
+        self.assertIn("1 item, filtered · by title", page)
+        # The sort travels with a filter change and with the tabs, and is not a filter.
+        self.assertIn('<input type="hidden" name="sort" value="title">', page)
+        self.assertIn('href="/?type=movie&amp;sort=title&amp;tab=needs"', page)
+        self.assertFalse(cards.Filters(sort="title").any)
+        # A column nobody can sort by is the tab's own order.
+        self.get("/?sort=raw_text")
+        self.assertEqual(self.load_inbox.await_args.args[1].sort, "")
+
+    def test_a_row_s_keys_act_on_the_row_with_the_focus(self) -> None:
+        item = self.rows.violent
+        self.inbox([item])
+        row = self.row_of(self.get("/").text, item.id)
+        self.assertRegex(row, r'^<article id="row-\d+" class="row"[^>]* data-keys>')
+        self.assertEqual(re.findall(r'data-row-key="(\w)" hx-post="/inbox/\d+/(\w+)"', row), [("a", "approve"), ("r", "reject"), ("s", "search")])
+        # Never data-key: that one is pressed wherever the focus is, and would act on the first row.
+        self.assertNotIn("data-key=", row)
+        script = (WEB_DIR / "static" / "app.js").read_text()
+        self.assertIn("rows[i].contains(document.activeElement)", script)
+        self.assertIn("if (rowKey(key)) return;", script)
 
     def test_on_a_phone_every_tab_is_in_sight(self) -> None:
         # The text of the stylesheet only. That the open tab is inside a 390 px
@@ -1553,7 +1584,8 @@ class AuditPageTests(PageCase):
     def test_reject_in_a_row_is_outlined(self) -> None:
         self.inbox([self.rows.violent])
         row = self.row_of(self.get("/").text, self.rows.violent.id)
-        self.assertIn('class="btn btn-danger-outline" hx-post=', row)
+        # Outlined in the danger colour, never the confirm dialog's solid one.
+        self.assertIn('class="btn btn-key btn-key-danger" data-row-key="r" hx-post=', row)
         self.assertNotIn('"btn btn-danger"', row)
 
     def test_the_needs_you_tab_leads_into_review(self) -> None:

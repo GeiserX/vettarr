@@ -89,6 +89,8 @@ class Filters:
     type: str = ""
     source: str = ""
     outcome: str = ""
+    #: A column the list is ordered by (``SORTS``), ``-`` first for the other way; empty is the tab's own order.
+    sort: str = ""
 
     @classmethod
     def read(cls, params: Mapping[str, Any]) -> Filters:
@@ -98,11 +100,12 @@ class Filters:
                 value = value[0] if value else ""
             return str(value).strip()[:100]
 
-        kind, outcome = one("type"), one("outcome")
+        kind, outcome, sort = one("type"), one("outcome"), one("sort")
         return cls(
             type=kind if kind in {t.value for t in MediaType} else "",
             source=one("source"),
             outcome=outcome if outcome in policy.OUTCOMES else "",
+            sort=sort if sort.lstrip("-") in SORTS else "",
         )
 
     def clauses(self) -> list[Any]:
@@ -117,12 +120,34 @@ class Filters:
 
     def query(self, **more: Any) -> str:
         """The query string of a link that keeps these filters, with ``more`` on top."""
-        values = {"type": self.type, "source": self.source, "outcome": self.outcome, **more}
+        values = {"type": self.type, "source": self.source, "outcome": self.outcome, "sort": self.sort, **more}
         return urlencode({name: value for name, value in values.items() if value not in ("", None)})
 
     @property
     def any(self) -> bool:
         return bool(self.type or self.source or self.outcome)
+
+
+# The Inbox's sortable columns. Ties keep the item's age, then its id, so a page never shuffles.
+SORTS = {
+    "title": MediaItem.title,
+    "type": MediaItem.media_type,
+    "source": MediaItem.source_key,
+    "age": MediaItem.created_at,
+}
+
+
+def sort_link(filters: Filters, tab: Tab, column: str) -> tuple[str, str]:
+    """The header link for ``column``: its query string, and how the list is ordered by it now
+    (``ascending``, ``descending`` or empty). The first click on age shows the oldest first."""
+    current = filters.sort
+    if current.lstrip("-") == column:
+        order = "descending" if current.startswith("-") else "ascending"
+        flipped = column if current.startswith("-") else f"-{column}"
+    else:
+        order = ""
+        flipped = column
+    return filters.query(tab=tab.key, sort=flipped), order
 
 
 # The 0.11 column, for a row decided before the policy engine wrote its own.
@@ -156,6 +181,10 @@ def items_query(tab: Tab, filters: Filters) -> Select:
         query = query.where(MediaItem.status.in_(sorted(tab.statuses, key=lambda s: s.value)))
     for clause in filters.clauses():
         query = query.where(clause)
+    if filters.sort:
+        column = SORTS[filters.sort.lstrip("-")]
+        first = column.desc() if filters.sort.startswith("-") else column.asc()
+        return query.order_by(first.nulls_last(), MediaItem.created_at.asc(), MediaItem.id.asc())
     if tab.oldest_first:
         return query.order_by(MediaItem.created_at.asc(), MediaItem.id.asc())
     return query.order_by(MediaItem.created_at.desc(), MediaItem.id.desc())

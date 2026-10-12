@@ -8,11 +8,33 @@
      title, in the text colour. The small caps .section-title is the item
      panel's and the Stats cards'. */
   .setup-title {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
     color: var(--text);
-    font-size: 1.125rem;
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
     line-height: 1.5rem;
-    font-weight: 600;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
   }
+  /* The rest of the line is a rule, so a section reads as a status line. */
+  .setup-title::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: var(--line);
+  }
+  /* As a card's first line: a strip across its top. */
+  .card.p-4 > .setup-title:first-child {
+    margin: -1rem -1rem 0.875rem;
+    padding: 0.375rem 1rem;
+    background: var(--surface-2);
+    border-bottom: 1px solid var(--line);
+    font-size: 0.75rem;
+  }
+  .card.p-4 > .setup-title:first-child::after { content: none; }
   .hint {
     margin-top: 0.25rem;
     color: var(--muted);
@@ -51,7 +73,6 @@
     padding: 0.375rem 0.625rem;
     background: var(--surface);
     border: 1px solid var(--line);
-    border-radius: 0.375rem;
     color: var(--text);
     font-size: 1rem;
     vertical-align: middle;
@@ -181,7 +202,6 @@
     align-items: flex-start;
     padding: 0.75rem;
     border: 1px solid var(--line);
-    border-radius: 0.5rem;
     cursor: pointer;
   }
   .option-card input {
@@ -289,9 +309,8 @@
     margin-top: 1.5rem;
     padding: 0.75rem 1rem;
     background: var(--surface);
-    border: 1px solid var(--line);
-    border-radius: 0.5rem;
-    box-shadow: var(--shadow);
+    border: 1px solid var(--line-strong);
+    box-shadow: inset 0 2px 0 var(--focus);
   }
   @media (max-width: 639.98px) {
     /* Above the bottom nav. */
@@ -305,9 +324,12 @@
   .stat {
     padding: 0.75rem;
     background: var(--surface-2);
-    border-radius: 0.5rem;
+  }
+  .stat {
+    border: 1px solid var(--line);
   }
   .stat-number {
+    font-family: var(--font-mono);
     font-size: 1.5rem;
     line-height: 2rem;
     font-weight: 700;
@@ -319,7 +341,7 @@
      held under the header so a long page always has its map. */
   .jump-links {
     position: sticky;
-    top: 3.5rem;
+    top: 3rem;
     z-index: 20;
     display: flex;
     gap: 0.375rem;
@@ -331,12 +353,14 @@
   }
   .jump-links a {
     flex: none;
-    padding: 0.375rem 0.75rem;
+    padding: 0.3125rem 0.625rem;
     border: 1px solid var(--line);
-    border-radius: 9999px;
     background: var(--surface);
-    font-size: 0.875rem;
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
     font-weight: 500;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
   }
   .jump-links a:hover {
     border-color: var(--muted);
@@ -353,7 +377,6 @@
     padding: 0.5rem 0.625rem;
     background: var(--surface-2);
     border: 1px dashed var(--line);
-    border-radius: 0.375rem;
     font-size: 0.875rem;
   }
   /* What is set, as label and value, as one grid. Not `.facts`: the item
