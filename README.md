@@ -1,11 +1,11 @@
 <p align="center">
-  <img src="docs/images/banner.svg" alt="vettarr banner" width="900">
+  <img src="https://raw.githubusercontent.com/GeiserX/vettarr/main/docs/images/banner.svg" alt="vettarr banner" width="900">
 </p>
 
 <h1 align="center">vettarr</h1>
 
 <p align="center">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0--or--later-blue?style=flat-square" alt="License: AGPL-3.0-or-later"></a>
+  <a href="https://github.com/GeiserX/vettarr/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0--or--later-blue?style=flat-square" alt="License: AGPL-3.0-or-later"></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-%3E%3D3.12-blue?style=flat-square&logo=python&logoColor=white" alt="Python 3.12+"></a>
 </p>
 
@@ -17,12 +17,12 @@ You see a film somewhere: a link a friend sends, a post in a Telegram group, a m
 
 <table>
   <tr>
-    <td><img src="docs/images/ui/inbox-1280-light.png" alt="The Inbox: items grouped by what they need, with the policy's verdict on each"></td>
-    <td><img src="docs/images/ui/item-1280-light.png" alt="An item: the verdict, every reason tagged by the rule that gave it, and the releases found"></td>
+    <td><img src="https://raw.githubusercontent.com/GeiserX/vettarr/main/docs/images/ui/inbox-1280-light.png" alt="The Inbox: items grouped by what they need, with the policy's verdict on each"></td>
+    <td><img src="https://raw.githubusercontent.com/GeiserX/vettarr/main/docs/images/ui/item-1280-light.png" alt="An item: the verdict, every reason tagged by the rule that gave it, and the releases found"></td>
   </tr>
   <tr>
-    <td><img src="docs/images/ui/policy-1280-light.png" alt="The Policy page: rules as sentences, with a preview of what a change would do"></td>
-    <td><img src="docs/images/ui/stats-1280-light.png" alt="Stats: decisions per day and the reasons behind them"></td>
+    <td><img src="https://raw.githubusercontent.com/GeiserX/vettarr/main/docs/images/ui/policy-1280-light.png" alt="The Policy page: rules as sentences, with a preview of what a change would do"></td>
+    <td><img src="https://raw.githubusercontent.com/GeiserX/vettarr/main/docs/images/ui/stats-1280-light.png" alt="Stats: decisions per day and the reasons behind them"></td>
   </tr>
 </table>
 
