@@ -268,7 +268,7 @@ def _tmdb(rng: random.Random, n: int, item: MediaItem, hold: str | None, unwante
         original_title=None,
         year=item.year,
         match_mode=MATCH_WITH_YEAR,
-        poster_url=f"/static/demo/poster-{n % 6}.svg",
+        poster_url=f"/static/demo/poster-{n % 12}.svg",
         genres=[name for _, name in genres],
         genre_ids=[gid for gid, _ in genres],
         keywords=["small town", "family", *(["spiders"] if unwanted else [])],

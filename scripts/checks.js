@@ -269,9 +269,13 @@ async function swipe(page, dx) {
     // --- the Inbox: a row's own button ---------------------------------------
     const row = await page.getAttribute('article.row[data-id]', 'data-id');
     const inline = await hold(page, '**/inbox/*/approve', 409, BUSY);
+    // On a phone a row's actions are a sheet its poster's corner button opens.
+    await page.click(`#row-${row} .tile-more`);
+    check('on a phone the poster\'s corner opens the actions as a sheet', await page.evaluate((id) => document.getElementById(`actions-${id}`).matches(':popover-open'), row));
     await page.click(`#row-${row} [hx-post="/inbox/${row}/approve"]`);
     await settle(page);
     check('a 409 from a row is a toast and the row stays', inline.length === 1 && (await toasts(page)).some((t) => t.includes(BUSY)) && (await page.locator(`#row-${row}`).count()) === 1, { inline, toasts: await toasts(page) });
+    await page.keyboard.press('Escape');
 
 
     // --- the Inbox: several rows ---------------------------------------------

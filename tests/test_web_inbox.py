@@ -548,32 +548,37 @@ class InboxPageTests(PageCase):
         self.assertEqual((tab.key, filters, page_number), ("waiting", cards.Filters(), 1))
 
     def test_a_row_shows_what_the_plan_lists(self) -> None:
+        # The shelf: a poster with the verdict stamped on its corner, then the
+        # title, a byline and the reason. Size, releases and the guide are the
+        # item's, one tap away.
         item = self.rows.searched
         self.inbox([item])
         row = self.row_of(self.get("/").text, item.id)
         self.assertIn(f'<img class="poster" src="{item.content_check.poster_url}" alt=""', row)
         self.assertRegex(row, rf'<a class="tap" href="/item/{item.id}"[^>]*>{re.escape(esc(item.title))}</a>')
-        self.assertIn(f"({item.year})", row)
-        self.assertIn(f"<span>{item.size_text}</span>", row)
+        self.assertIn(f"<span>{item.year}</span>", row)
+        self.assertIn(f'<span class="badge badge-{item.media_type.value.lower()}">', row)
         # The open tab already says "Needs you": every row repeating it was noise.
-        self.assertNotIn('<span class="badge badge-warn">Needs you</span>', row)
-        self.assertIn('<span class="badge badge-warn">Policy: review</span>', row)
-        best = item.torrent_searches[0].prowlarr_results[0]
-        self.assertIn(f'<span class="release-title" title="{best["title"]}">{best["title"]}</span>', row)
-        self.assertIn(f'{best["seeders"]} seeders', row)
+        self.assertNotIn(">Needs you</span>", row)
+        # The verdict is a mark and a word; a screen reader hears "Policy: review".
+        self.assertIn('<span class="stamp stamp-warn"><span class="sr-only">Policy: </span>review</span>', row)
 
-    def test_a_rating_pill_says_its_word_beside_its_colour(self) -> None:
+    def test_a_poster_missing_is_the_type_s_tile_not_a_broken_image(self) -> None:
+        item = self.rows.one(_S.PARSE_FAILED)
+        self.inbox([item])
+        row = self.row_of(self.get("/?tab=all").text, item.id)
+        self.assertNotIn("<img", row)
+        self.assertRegex(row, r'<span class="poster poster-none" aria-hidden="true"><svg [^>]*aria-hidden="true">')
+
+    def test_a_row_says_its_reason_in_words_once(self) -> None:
         item = self.rows.violent
         self.inbox([item])
         row = self.row_of(self.get("/").text, item.id)
-        self.assertIn('<li class="pill pill-severe">Violence: severe</li>', row)
-        # A row shows what is rated above none; five pills wrapped to three lines on a phone.
-        shown = re.findall(r'<li class="pill pill-(none|mild|moderate|severe)">\w+: \1</li>', row)
-        self.assertEqual(shown, [s for s in shown if s != "none"])
-        self.assertEqual(len(shown), sum(1 for _, s in self.rows.card(item).pills if s != "none"))
         # The reason in words, once: no rule tag beside the signal that says the same.
         self.assertIn("Violence (IMDb): severe", row)
         self.assertNotIn('<span class="tag">violence</span>', row)
+        # The guide's ratings are the item's: a poster with five pills under it was the noise.
+        self.assertNotIn('class="pill', row)
 
     def test_a_row_whose_guide_is_all_none_says_so_in_one_pill(self) -> None:
         card = self.rows.card(self.rows.violent)
