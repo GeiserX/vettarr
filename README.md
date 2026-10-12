@@ -55,7 +55,7 @@ Then edit `data/config.yaml`:
 1. Set a password: `docker compose run --rm app vettarr web hash-password`, put the line it prints in `.env` as `WEB_PASSWORD_HASH=...`, and uncomment `web.auth` in the file.
 2. Add a source, the integrations you run (Prowlarr, qBittorrent, Radarr, Sonarr, Seerr, TMDB) and where each media type goes (`deliver`).
 3. Check it: `docker compose run --rm app vettarr config check /data/config.yaml` validates the file and lists what would start.
-4. `docker compose restart app`.
+4. Apply it: `docker compose up -d --force-recreate app`. Use this rather than `docker compose restart`, which keeps the container's old environment and never reads the new `.env` line.
 
 The compose file publishes the UI on this machine only, because the example config has no password. To open it to your network, set the password first (step 1), then change the port line in `docker-compose.yml` to `"4850:4850"` and run `docker compose up -d`.
 
