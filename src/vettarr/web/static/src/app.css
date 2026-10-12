@@ -300,12 +300,6 @@
     height: 1.5rem;
     width: auto;
   }
-  .mark-tile {
-    fill: var(--accent);
-  }
-  .mark-tick {
-    stroke: var(--on-accent);
-  }
 
   /* --- layout ------------------------------------------------------------ */
   /* Off screen until the keyboard reaches it, then over the header: it never
