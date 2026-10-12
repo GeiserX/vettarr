@@ -19,25 +19,88 @@
 @source "../../routes";
 @source "../app.js";
 
-/* `dark:` follows the same rule as the tokens: the stored choice when there
-   is one, otherwise the system's. */
+/* `dark:` follows the same rule as the tokens: dark unless the stored choice
+   is light. */
 @custom-variant dark {
-  &:where([data-theme="dark"], [data-theme="dark"] *) {
+  &:where(:root:not([data-theme="light"]), :root:not([data-theme="light"]) *) {
     @slot;
-  }
-  @media (prefers-color-scheme: dark) {
-    &:where(:root:not([data-theme="light"]), :root:not([data-theme="light"]) *) {
-      @slot;
-    }
   }
 }
 
 /* --- tokens ---------------------------------------------------------------
-   The two dark blocks must stay the same: one answers the system setting, the
-   other the toggle (data-theme on <html>, kept in localStorage). A test
-   compares them. */
+   Dark is the default. The light block answers the toggle (data-theme on
+   <html>, kept in localStorage); the system setting is not consulted. A test
+   checks both blocks name the same tokens. */
 
 :root {
+  color-scheme: dark;
+  --bg: #0b0b0c;
+  --surface: #141416;
+  --surface-2: #1d1d20;
+  --line: #2b2b30;
+  --text: #ededee;
+  --muted: #a3a3aa;
+  --accent: #a5b4fc;
+  --accent-hover: #c7d2fe;
+  --on-accent: #0b0b0c;
+  --focus: #a5b4fc;
+  --ok: #86efac;
+  --ok-bg: #0f2a19;
+  --warn: #fcd34d;
+  --warn-bg: #2d2208;
+  --danger: #fca5a5;
+  --danger-hover: #fecaca;
+  --danger-bg: #3a1515;
+  --sev-none: #86efac;
+  --sev-none-bg: #123a22;
+  --sev-mild: #d9e86a;
+  --sev-mild-bg: #2f3a0c;
+  --sev-moderate: #fdba74;
+  --sev-moderate-bg: #4a2508;
+  --sev-severe: #fca5a5;
+  --sev-severe-bg: #4a1717;
+  --bar-none: var(--sev-none);
+  --bar-mild: var(--sev-mild);
+  --bar-moderate: var(--sev-moderate);
+  --bar-severe: var(--sev-severe);
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.5), 0 12px 32px rgb(0 0 0 / 0.55);
+  --glow: 0.45;
+  --stamp-ok: #15803d;
+  --stamp-ok-text: #ffffff;
+  --stamp-warn: #f4b01c;
+  --stamp-warn-text: #1b1300;
+  --stamp-flag: #c81e1e;
+  --stamp-flag-text: #ffffff;
+  --stamp-muted: #3f3f46;
+  --stamp-muted-text: #ffffff;
+  --chart-approve: #199e70;
+  --chart-review: #c98500;
+  --chart-wait: #3987e5;
+  --chart-reject: #e66767;
+  --gray-50: #f9fafb;
+  --gray-100: #f3f4f6;
+  --gray-200: #e5e7eb;
+  --gray-300: #d1d5db;
+  --gray-400: #9ca3af;
+  --gray-500: #a3a3aa;
+  --gray-600: #96969d;
+  --gray-700: #374151;
+  --gray-800: #1f2937;
+  --gray-900: #111827;
+  --gray-950: #030712;
+  --blue-300: #c7d2fe;
+  --blue-400: #a5b4fc;
+  --green-300: #86efac;
+  --green-400: #4ade80;
+  --green-900: #14532d;
+  --red-300: #fca5a5;
+  --red-400: #f87171;
+  --red-900: #7f1d1d;
+  --yellow-400: #facc15;
+  --orange-400: #fb923c;
+}
+
+:root[data-theme="light"] {
   color-scheme: light;
   --bg: #f6f6f4;
   --surface: #ffffff;
@@ -113,143 +176,7 @@
   --orange-400: #c2410c;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    color-scheme: dark;
-    --bg: #0b0b0c;
-    --surface: #141416;
-    --surface-2: #1d1d20;
-    --line: #2b2b30;
-    --text: #ededee;
-    --muted: #a3a3aa;
-    --accent: #a5b4fc;
-    --accent-hover: #c7d2fe;
-    --on-accent: #0b0b0c;
-    --focus: #a5b4fc;
-    --ok: #86efac;
-    --ok-bg: #0f2a19;
-    --warn: #fcd34d;
-    --warn-bg: #2d2208;
-    --danger: #fca5a5;
-    --danger-hover: #fecaca;
-    --danger-bg: #3a1515;
-    --sev-none: #86efac;
-    --sev-none-bg: #123a22;
-    --sev-mild: #d9e86a;
-    --sev-mild-bg: #2f3a0c;
-    --sev-moderate: #fdba74;
-    --sev-moderate-bg: #4a2508;
-    --sev-severe: #fca5a5;
-    --sev-severe-bg: #4a1717;
-    --bar-none: var(--sev-none);
-    --bar-mild: var(--sev-mild);
-    --bar-moderate: var(--sev-moderate);
-    --bar-severe: var(--sev-severe);
-    --shadow: 0 1px 2px rgb(0 0 0 / 0.5), 0 12px 32px rgb(0 0 0 / 0.55);
-    --glow: 0.45;
-    --stamp-ok: #15803d;
-    --stamp-ok-text: #ffffff;
-    --stamp-warn: #f4b01c;
-    --stamp-warn-text: #1b1300;
-    --stamp-flag: #c81e1e;
-    --stamp-flag-text: #ffffff;
-    --stamp-muted: #3f3f46;
-    --stamp-muted-text: #ffffff;
-    --chart-approve: #199e70;
-    --chart-review: #c98500;
-    --chart-wait: #3987e5;
-    --chart-reject: #e66767;
-    --gray-50: #f9fafb;
-    --gray-100: #f3f4f6;
-    --gray-200: #e5e7eb;
-    --gray-300: #d1d5db;
-    --gray-400: #9ca3af;
-    --gray-500: #a3a3aa;
-    --gray-600: #96969d;
-    --gray-700: #374151;
-    --gray-800: #1f2937;
-    --gray-900: #111827;
-    --gray-950: #030712;
-    --blue-300: #c7d2fe;
-    --blue-400: #a5b4fc;
-    --green-300: #86efac;
-    --green-400: #4ade80;
-    --green-900: #14532d;
-    --red-300: #fca5a5;
-    --red-400: #f87171;
-    --red-900: #7f1d1d;
-    --yellow-400: #facc15;
-    --orange-400: #fb923c;
-  }
-}
 
-:root[data-theme="dark"] {
-  color-scheme: dark;
-  --bg: #0b0b0c;
-  --surface: #141416;
-  --surface-2: #1d1d20;
-  --line: #2b2b30;
-  --text: #ededee;
-  --muted: #a3a3aa;
-  --accent: #a5b4fc;
-  --accent-hover: #c7d2fe;
-  --on-accent: #0b0b0c;
-  --focus: #a5b4fc;
-  --ok: #86efac;
-  --ok-bg: #0f2a19;
-  --warn: #fcd34d;
-  --warn-bg: #2d2208;
-  --danger: #fca5a5;
-  --danger-hover: #fecaca;
-  --danger-bg: #3a1515;
-  --sev-none: #86efac;
-  --sev-none-bg: #123a22;
-  --sev-mild: #d9e86a;
-  --sev-mild-bg: #2f3a0c;
-  --sev-moderate: #fdba74;
-  --sev-moderate-bg: #4a2508;
-  --sev-severe: #fca5a5;
-  --sev-severe-bg: #4a1717;
-  --bar-none: var(--sev-none);
-  --bar-mild: var(--sev-mild);
-  --bar-moderate: var(--sev-moderate);
-  --bar-severe: var(--sev-severe);
-  --shadow: 0 1px 2px rgb(0 0 0 / 0.5), 0 12px 32px rgb(0 0 0 / 0.55);
-  --glow: 0.45;
-  --stamp-ok: #15803d;
-  --stamp-ok-text: #ffffff;
-  --stamp-warn: #f4b01c;
-  --stamp-warn-text: #1b1300;
-  --stamp-flag: #c81e1e;
-  --stamp-flag-text: #ffffff;
-  --stamp-muted: #3f3f46;
-  --stamp-muted-text: #ffffff;
-  --chart-approve: #199e70;
-  --chart-review: #c98500;
-  --chart-wait: #3987e5;
-  --chart-reject: #e66767;
-  --gray-50: #f9fafb;
-  --gray-100: #f3f4f6;
-  --gray-200: #e5e7eb;
-  --gray-300: #d1d5db;
-  --gray-400: #9ca3af;
-  --gray-500: #a3a3aa;
-  --gray-600: #96969d;
-  --gray-700: #374151;
-  --gray-800: #1f2937;
-  --gray-900: #111827;
-  --gray-950: #030712;
-  --blue-300: #c7d2fe;
-  --blue-400: #a5b4fc;
-  --green-300: #86efac;
-  --green-400: #4ade80;
-  --green-900: #14532d;
-  --red-300: #fca5a5;
-  --red-400: #f87171;
-  --red-900: #7f1d1d;
-  --yellow-400: #facc15;
-  --orange-400: #fb923c;
-}
 
 @theme inline {
   /* System stacks only: nothing is downloaded. The display face is the
@@ -556,13 +483,9 @@
     color: var(--text);
     background: var(--surface-2);
   }
-  .theme-sun { display: none; }
-  :root[data-theme="dark"] .theme-sun { display: block; }
-  :root[data-theme="dark"] .theme-moon { display: none; }
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) .theme-sun { display: block; }
-    :root:not([data-theme="light"]) .theme-moon { display: none; }
-  }
+  .theme-moon { display: none; }
+  :root[data-theme="light"] .theme-moon { display: block; }
+  :root[data-theme="light"] .theme-sun { display: none; }
   .btn-icon {
     width: 2.25rem;
     height: 2.25rem;
