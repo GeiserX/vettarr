@@ -1,0 +1,6 @@
+{#- How many items wait for a person, beside Inbox. The number is for the eye; the words are read out.
+    Every action answers with a toast, and a toast has this read again, so a decision made on the page
+    lowers the count without a reload. -#}
+<span id="nav-count" class="nav-count-slot" hx-get="/inbox/count" hx-trigger="toast from:body" hx-swap="outerHTML">
+    {%- if needs_you %}<span class="nav-count"><span aria-hidden="true">{{ needs_you if needs_you < 100 else '99+' }}</span><span class="sr-only">, {{ needs_you }} need{{ 's' if needs_you == 1 else '' }} you</span></span>{% endif -%}
+</span>

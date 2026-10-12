@@ -1,0 +1,82 @@
+# The shape of a real operator's policy, with neutral stand-in words.
+#
+# Every rule kind the operator's own file uses is here, in the same order and
+# with the same actions (the violence rule rejects, as decision 3 allows), so
+# the policy tests exercise the real structure. The lists hold placeholder
+# words only: an operator's own word lists live in their private config and
+# never in this repository.
+sources:
+  - key: feed
+    kind: userbot
+    chat: -1
+telegram:
+  api_id: 1
+  api_hash: test-hash
+integrations:
+  tmdb:
+    api_key: test-key
+  qbittorrent:
+    url: http://qbittorrent
+  prowlarr:
+    url: http://prowlarr
+    api_key: test-key
+policy:
+  auto_approve: "on"
+  min_votes: 5
+  types:
+    movie: {mode: rules, when_data_missing: wait, max_wait_hours: 24}
+    series: {mode: rules, when_data_missing: wait, max_wait_hours: 24}
+    magazine: {mode: always}
+    ebook: {mode: rules, when_data_missing: approve}
+    audiobook: {mode: rules, when_data_missing: approve}
+    comic: {mode: rules, when_data_missing: approve}
+    music: {mode: never}
+  lists:
+    flagged-keywords: [lighthouse, lighthouses, submarine, faro]
+    subject-a: [beekeeping, apiculture, apicultura]
+    subject-b: [knitting, tejido]
+    subject-c: [origami, papiroflexia]
+  rules:
+    - id: flagged-genre
+      types: [movie]
+      check: genre
+      any_of: [10402]
+      on_hit: review
+    - id: flagged-keywords
+      check: keyword
+      matches_any: flagged-keywords
+      on_hit: review
+    - id: adult-certification
+      check: certification
+      any_of: [US:NC-17, US:X, ES:X, ES:18, GB:R18, GB:18]
+      on_hit: review
+    - id: nudity
+      check: imdb.nudity
+      at_least: moderate
+      split_vote: 0.40
+      on_hit: review
+    - id: violence
+      check: imdb.violence
+      at_least: severe
+      split_vote: 0.40
+      on_hit: reject
+    - id: frightening
+      check: imdb.frightening
+      at_least: severe
+      split_vote: 0.40
+      on_hit: review
+    - id: subject-a
+      types: [ebook, audiobook, comic]
+      check: book.subject
+      matches_any: subject-a
+      on_hit: review
+    - id: subject-b
+      types: [ebook, audiobook, comic]
+      check: book.subject
+      matches_any: subject-b
+      on_hit: review
+    - id: subject-c
+      types: [ebook, audiobook, comic]
+      check: book.subject
+      matches_any: subject-c
+      on_hit: review

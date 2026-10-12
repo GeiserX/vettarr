@@ -1,0 +1,94 @@
+{# One simple block of the config file as a form: an integration, deliver, notify, web, telegram.
+   Needs `card` (routes/setup.py card()) and `state`; `untitled` when the section's heading already names it.
+   A save that fails answers with this again. An integration nobody set up stays folded. #}
+{% set block = card.block %}
+{% set ro = not state.writable %}
+{% set heading %}
+    <span class="flex flex-wrap items-center gap-x-3 gap-y-1">
+        {% if not untitled %}<h3 class="font-semibold">{{ block.title }}</h3>{% endif %}
+        {% if card.status %}
+        <span class="state state-{{ 'ok' if card.status[0] == 'on' else 'off' }}"><span aria-hidden="true">{{ '&#10003;'|safe if card.status[0] == 'on' else '&#9675;'|safe }}</span>{{ card.status[1] }}</span>
+        {% endif %}
+    </span>
+{% endset %}
+<div class="card p-4" id="card-{{ block.slug }}">
+    {% if card.folded %}<details class="fold"><summary>{{ heading }}</summary>{% else %}{{ heading }}{% endif %}
+    <p class="hint">{{ block.what }}</p>
+    {% if card.facts %}
+    <dl class="kv mt-3">
+        {% for label, value, tone in card.facts %}
+        <dt>{{ label }}</dt>
+        <dd><span class="state state-{{ tone }}"><span aria-hidden="true">{{ '&#10003;'|safe if tone == 'ok' else '&#10007;'|safe }}</span>{{ value }}</span></dd>
+        {% endfor %}
+    </dl>
+    {% if block.path == 'web' %}<p class="hint">The sign-in is written in the file: <code>vettarr web hash-password</code> prints the line for <code>web.auth.password_hash</code>.</p>{% endif %}
+    {% endif %}
+    <form class="mt-3" method="post" action="/setup/block/{{ block.path }}" hx-post="/setup/block/{{ block.path }}" hx-target="#card-{{ block.slug }}" hx-swap="outerHTML" novalidate>
+        <fieldset class="plain-fieldset grid gap-3 sm:grid-cols-2" {% if ro %}disabled{% endif %}>
+            <legend class="sr-only">{{ block.title }}</legend>
+            {% for item in card.fields %}
+            {% set f = item.f %}
+            {% if item.kind == 'bool' %}
+            <label class="check sm:col-span-2" for="{{ item.id }}">
+                <input type="checkbox" id="{{ item.id }}" name="{{ f.name }}" value="1" {% if item.value %}checked{% endif %}>
+                <span>{{ f.label }}</span>
+            </label>
+            {% else %}
+            <div {% if block.fields|length == 1 %}class="sm:col-span-2"{% endif %}>
+                {% if item.env %}
+                <p class="label">{{ f.label }}</p>
+                {% else %}
+                <label class="label" for="{{ item.id }}">{{ f.label }}
+                    {% if item.kind == 'secret' %}
+                    <span class="state state-{{ 'ok' if item.state else 'off' }} ml-1"><span aria-hidden="true">{{ '&#10003;'|safe if item.state else '&#9675;'|safe }}</span>{{ item.state or 'not set' }}</span>
+                    {% endif %}
+                </label>
+                {% endif %}
+                {% if item.kind == 'secret' %}
+                <input class="input" type="password" id="{{ item.id }}" name="{{ f.name }}" autocomplete="new-password"
+                       placeholder="{{ 'Leave empty to keep it' if item.state and not ro else '' }}"{% if item.error %} aria-invalid="true" aria-describedby="{{ item.id }}-error"{% endif %}>
+                {% if item.state and block.removable and not ro %}
+                <label class="check" for="{{ item.id }}-clear">
+                    <input type="checkbox" id="{{ item.id }}-clear" name="{{ f.name }}-clear" value="1">
+                    <span>Remove it from the file</span>
+                </label>
+                {% endif %}
+                {% elif item.env %}
+                <p class="env-value"><svg class="shrink-0" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+                    <span>From the environment: <code>{{ item.env }}</code>. Change it where the container is started.</span></p>
+                {% elif item.kind == 'select' %}
+                <select class="input" id="{{ item.id }}" name="{{ f.name }}"{% if item.error %} aria-invalid="true" aria-describedby="{{ item.id }}-error"{% endif %}>
+                    {% for option in f.options %}<option value="{{ option }}" {% if item.value == option %}selected{% endif %}>{{ option }}</option>{% endfor %}
+                </select>
+                {% else %}
+                <input class="input" type="text" id="{{ item.id }}" name="{{ f.name }}" value="{{ item.value }}" placeholder="{{ f.default }}"
+                       {% if item.kind in ('int', 'ints') %}inputmode="numeric"{% elif item.kind == 'url' %}inputmode="url"{% endif %}
+                       autocapitalize="none" spellcheck="false"{% if item.error %} aria-invalid="true" aria-describedby="{{ item.id }}-error"{% endif %}>
+                {% endif %}
+                {% if f.hint %}<p class="hint">{{ f.hint }}</p>{% endif %}
+                {% if item.error %}<p class="field-error" id="{{ item.id }}-error"><span aria-hidden="true">&#10007;</span><span>{{ item.error }}</span></p>{% endif %}
+            </div>
+            {% endif %}
+            {% endfor %}
+        </fieldset>
+        {% if card.problems %}
+        <div class="notice notice-error mt-3" role="alert">
+            <span aria-hidden="true">&#10007;</span>
+            <div><strong>Not saved.</strong>
+                <ul class="list-disc pl-5">{% for line in card.problems %}<li class="break-words">{{ line }}</li>{% endfor %}</ul>
+            </div>
+        </div>
+        {% endif %}
+        {% if not ro or block.test %}
+        <div class="flex flex-wrap items-center gap-2 mt-3">
+            {% if not ro %}<button class="btn btn-primary btn-lg">Save</button>{% endif %}
+            {% if block.test %}
+            <button type="button" class="btn btn-secondary btn-lg" hx-post="/setup/block/{{ block.path }}/test" hx-target="#test-{{ block.slug }}" hx-swap="innerHTML">Test connection</button>
+            <span id="test-{{ block.slug }}" class="text-sm" role="status"></span>
+            {% endif %}
+        </div>
+        {% if block.test %}<p class="hint">Test connection asks it once, with what the config file holds now.</p>{% endif %}
+        {% endif %}
+    </form>
+    {% if card.folded %}</details>{% endif %}
+</div>

@@ -1,0 +1,70 @@
+{% import "partials/bits.html" as bits %}
+{# The item Review shows. A key clicks the control that carries it in data-key
+   (static/app.js), and a swipe on [data-swipe] is the J or the K key. The card
+   reads itself again when the item drawer announces a change (item-<id>).
+   On a phone Previous and Next are hidden: the swipe and J and K still press them. #}
+{% set card = review.card %}
+{% if card %}
+<section id="review-card" class="review" data-swipe aria-label="{{ card.title }}"
+         hx-get="/review?item={{ card.id }}" hx-trigger="item-{{ card.id }} from:body" hx-swap="outerHTML">
+    <div class="review-nav">
+        <a class="btn btn-secondary" data-key="k" href="/review?before={{ card.id }}"
+           hx-get="/review?before={{ card.id }}" hx-target="#review-card" hx-swap="outerHTML"><span aria-hidden="true">&lsaquo;</span> Previous <kbd class="kbd">K</kbd></a>
+        <p class="review-place">{% if review.position %}{{ review.position }} of {{ review.total }}<span class="review-order"> · {{ 'decisions first, oldest first' if review.total > 1 else 'oldest first' }}</span>{% else %}Not waiting for you · {{ review.total }} waiting{% endif %}</p>
+        <a class="btn btn-secondary" data-key="j" href="/review?after={{ card.id }}"
+           hx-get="/review?after={{ card.id }}" hx-target="#review-card" hx-swap="outerHTML">Next <kbd class="kbd">J</kbd> <span aria-hidden="true">&rsaquo;</span></a>
+    </div>
+
+    <div class="review-body card">
+        {{ bits.poster(card, "review-poster") }}
+        <div class="review-main">
+            <h2 class="review-title">{{ card.title }}{% if card.item.year %} <span class="text-muted font-normal">({{ card.item.year }})</span>{% endif %}</h2>
+            <p class="row-meta">{{ bits.meta(card) }}</p>
+            <p class="row-verdict">{{ bits.chips(card) }}</p>
+            {% if card.reasons %}
+            <ul class="reasons">
+                {% for line in card.reasons %}<li>{{ bits.reason(line) }}</li>{% endfor %}
+            </ul>
+            {% endif %}
+            {% if card.failed %}<p class="notice notice-error mt-2">{{ card.failed }}</p>{% endif %}
+            {{ bits.pills(card) }}
+            {{ bits.best(card) }}
+            {% if card.check and card.check.plot %}<p class="review-plot">{{ card.check.plot }}</p>{% endif %}
+
+            {% if card.selectable or card.unreadable %}
+            <div class="review-actions">
+                {% if card.can_approve %}
+                <button class="btn btn-primary btn-lg" data-key="a" hx-post="/review/{{ card.id }}/approve" hx-target="#review-card" hx-swap="outerHTML" hx-disabled-elt="#review-card button">{{ card.approve_label }} <kbd class="kbd">A</kbd></button>
+                {% endif %}
+                {{ bits.teach(card, "btn btn-secondary btn-lg") }}
+                {% if card.can_reject %}
+                <button class="btn btn-danger-outline btn-lg" data-key="r" hx-post="/review/{{ card.id }}/reject" hx-target="#review-card" hx-swap="outerHTML" hx-disabled-elt="#review-card button"
+                        data-confirm-title="{{ card.reject_label }} {{ card.title }}?" data-confirm="{{ card.reject_confirm }}" data-confirm-action="{{ card.reject_label }}">{{ card.reject_label }} <kbd class="kbd">R</kbd></button>
+                {% endif %}
+                {% if card.can_search %}
+                <button class="btn btn-secondary btn-lg" data-key="s" hx-post="/review/{{ card.id }}/search" hx-target="#review-card" hx-swap="outerHTML" hx-disabled-elt="#review-card button">Search <kbd class="kbd">S</kbd></button>
+                {% endif %}
+                {# Only with a release to take: the latest search's best. #}
+                {% if card.can_grab_best %}
+                <button class="btn btn-secondary btn-lg" data-key="g" hx-post="/review/{{ card.id }}/grab" hx-target="#review-card" hx-swap="outerHTML" hx-disabled-elt="#review-card button"><span>Grab<span class="max-sm:hidden"> the best</span></span> <kbd class="kbd">G</kbd></button>
+                {% endif %}
+            </div>
+            {% endif %}
+
+            <p><a class="link tap" data-key="o" href="/item/{{ card.id }}?from=review" hx-get="/item/{{ card.id }}" hx-target="#drawer-body" hx-swap="innerHTML">Open the item <kbd class="kbd">O</kbd></a></p>
+            <details class="post">
+                <summary>The post</summary>
+                <pre>{{ card.item.raw_text }}</pre>
+            </details>
+        </div>
+    </div>
+</section>
+{% else %}
+<section id="review-card" class="review" aria-label="Review">
+    <div class="card empty">
+        <p class="font-semibold">Nothing to review.</p>
+        <p class="text-muted mt-1">Every item that needed you is decided. New ones show up here, oldest first.</p>
+        <a class="btn btn-secondary mt-4" href="/">Open the Inbox</a>
+    </div>
+</section>
+{% endif %}

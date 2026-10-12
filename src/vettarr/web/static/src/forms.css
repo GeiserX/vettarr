@@ -1,0 +1,419 @@
+/* What the Policy and Setup pages add to the layout's components: inline
+   fields for a rule written as a sentence, the severity chips, tables that
+   stack on a phone, and the bar that holds Save. Imported by app.css; the
+   tokens are the ones set there. */
+
+@layer components {
+  /* A page-level section of Policy and Setup: larger than a card's own
+     title, in the text colour. The small caps .section-title is the item
+     panel's and the Stats cards'. */
+  .setup-title {
+    color: var(--text);
+    font-size: 1.125rem;
+    line-height: 1.5rem;
+    font-weight: 600;
+  }
+  .hint {
+    margin-top: 0.25rem;
+    color: var(--muted);
+    font-size: 0.875rem;
+  }
+  code {
+    font-family: var(--font-mono);
+    font-size: 0.875em;
+  }
+  .plain-fieldset {
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+  .notice-info {
+    background: var(--surface-2);
+    border-color: var(--line);
+    color: var(--text);
+  }
+  .notice-ok {
+    background: var(--ok-bg);
+    color: var(--ok);
+  }
+  .badge-unknown {
+    border: 1px solid var(--line);
+  }
+
+  /* --- fields ---------------------------------------------------------------- */
+  /* A field inside a sentence: as wide as what it holds, still a 40 px target. */
+  .field-inline {
+    display: inline-block;
+    width: auto;
+    max-width: 100%;
+    min-height: 2.5rem;
+    padding: 0.375rem 0.625rem;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 0.375rem;
+    color: var(--text);
+    font-size: 1rem;
+    vertical-align: middle;
+  }
+  .field-inline:focus-visible {
+    border-color: var(--focus);
+  }
+  textarea.input,
+  textarea.field-inline {
+    line-height: 1.4;
+    resize: vertical;
+  }
+  select.input,
+  select.field-inline {
+    cursor: pointer;
+  }
+  /* Wrong, said three ways: the border, the mark and the words under it. */
+  .input[aria-invalid="true"],
+  .field-inline[aria-invalid="true"] {
+    border-color: var(--danger);
+    border-width: 2px;
+  }
+  .field-error {
+    display: flex;
+    gap: 0.375rem;
+    margin-top: 0.375rem;
+    color: var(--danger);
+    font-size: 0.875rem;
+    font-weight: 600;
+  }
+  /* Managed by file: the values stay readable, only the controls are off. */
+  :disabled.input,
+  :disabled.field-inline {
+    background: var(--surface-2);
+    color: var(--text);
+    cursor: not-allowed;
+    opacity: 1;
+  }
+  fieldset:disabled label {
+    cursor: not-allowed;
+  }
+
+  /* --- a rule as a sentence --------------------------------------------------- */
+  .sentence {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .sentence .check {
+    min-height: 2.5rem;
+  }
+  .terms {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 0.5rem;
+    max-width: 100%;
+  }
+  .terms textarea {
+    width: 16rem;
+  }
+  /* A named list is chosen: the words are that list's, written under Lists. */
+  .terms:has(select option:not([value=""]):checked) textarea {
+    display: none;
+  }
+
+  /* The severity scale, None to Severe. Every chip carries its word. The
+     chosen one carries the marker ("hold from"), and the chips the rule
+     catches are filled with a solid edge; the others are hollow and dashed. */
+  .sev-chips {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.375rem;
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+  .sev-chips label {
+    min-height: 2.5rem;
+    padding: 0.25rem 0.625rem;
+    background: transparent;
+    border-style: dashed;
+    font-size: 0.875rem;
+    cursor: pointer;
+  }
+  .sev-chips .sev-mark {
+    display: none;
+    font-size: 0.6875rem;
+    font-weight: 800;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+  }
+  .sev-chips input:checked + label {
+    border-style: solid;
+    border-width: 2px;
+  }
+  .sev-chips input:checked + label .sev-mark {
+    display: inline;
+  }
+  .sev-chips input:checked + label.pill-none,
+  .sev-chips[data-op="at_least"] input:checked ~ label.pill-none,
+  .sev-chips[data-op="at_most"] label.pill-none:has(~ input:checked) { background: var(--sev-none-bg); border-style: solid; }
+  .sev-chips input:checked + label.pill-mild,
+  .sev-chips[data-op="at_least"] input:checked ~ label.pill-mild,
+  .sev-chips[data-op="at_most"] label.pill-mild:has(~ input:checked) { background: var(--sev-mild-bg); border-style: solid; }
+  .sev-chips input:checked + label.pill-moderate,
+  .sev-chips[data-op="at_least"] input:checked ~ label.pill-moderate,
+  .sev-chips[data-op="at_most"] label.pill-moderate:has(~ input:checked) { background: var(--sev-moderate-bg); border-style: solid; }
+  .sev-chips input:checked + label.pill-severe,
+  .sev-chips[data-op="at_least"] input:checked ~ label.pill-severe,
+  .sev-chips[data-op="at_most"] label.pill-severe:has(~ input:checked) { background: var(--sev-severe-bg); border-style: solid; }
+  .sev-chips input:focus-visible + label {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+  .sev-chips[aria-invalid="true"] label {
+    border-color: var(--danger);
+  }
+
+  /* --- one of three, each with its line of explanation ------------------------ */
+  .option-card {
+    display: flex;
+    gap: 0.625rem;
+    align-items: flex-start;
+    padding: 0.75rem;
+    border: 1px solid var(--line);
+    border-radius: 0.5rem;
+    cursor: pointer;
+  }
+  .option-card input {
+    width: 1.125rem;
+    height: 1.125rem;
+    margin-top: 0.1875rem;
+    flex: none;
+    accent-color: var(--accent);
+  }
+  .option-card:has(input:checked) {
+    border-color: var(--accent);
+    box-shadow: inset 0 0 0 1px var(--accent);
+    background: var(--surface-2);
+  }
+  .option-card:has(input:focus-visible) {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+
+  /* --- a table that becomes one block per row on a phone ----------------------- */
+  .stack-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  .stack-table th,
+  .stack-table td {
+    padding: 0.375rem 0.75rem 0.375rem 0;
+    text-align: left;
+    vertical-align: middle;
+  }
+  .stack-table thead th {
+    color: var(--muted);
+    font-size: 0.8125rem;
+    font-weight: 600;
+  }
+  .stack-table tbody tr {
+    border-top: 1px solid var(--line);
+  }
+  .stack-table tbody tr.stack-table-note {
+    border-top: 0;
+  }
+  /* Waiting for data is a matter for a type decided by the rules only. Out of
+     sight and out of the tab order for any other type; faded, their words
+     failed the contrast check. They come back when the mode is set to rules. */
+  .stack-table tr:has(.type-mode option:not([value="rules"]):checked) .when-rules {
+    visibility: hidden;
+  }
+  @media (max-width: 639.98px) {
+    .stack-table tr:has(.type-mode option:not([value="rules"]):checked) .when-rules {
+      display: none;
+    }
+    .stack-table thead {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+    }
+    /* The type and how it is decided share the first line; what only a
+       type decided by the rules needs comes under it, each with its label. */
+    .stack-table tbody tr {
+      display: grid;
+      grid-template-columns: 6.5rem 1fr;
+      align-items: center;
+      gap: 0.375rem;
+      padding: 0.625rem 0;
+    }
+    .stack-table th,
+    .stack-table td {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0;
+    }
+    .stack-table td.when-rules,
+    .stack-table .stack-table-note td {
+      grid-column: 1 / -1;
+    }
+    .stack-table td.when-rules::before {
+      content: attr(data-label);
+      flex: 0 0 9.5rem;
+      color: var(--muted);
+      font-size: 0.875rem;
+    }
+  }
+
+  /* What Save and Preview answer. Shown from its top, under the header, and
+     never under the action bar that follows it. */
+  #policy-result {
+    scroll-margin-top: 4.5rem;
+    scroll-margin-bottom: 6rem;
+  }
+
+  /* --- Save, always in reach --------------------------------------------------- */
+  .action-bar {
+    position: sticky;
+    bottom: 0;
+    z-index: 20;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    margin-top: 1.5rem;
+    padding: 0.75rem 1rem;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 0.5rem;
+    box-shadow: var(--shadow);
+  }
+  @media (max-width: 639.98px) {
+    /* Above the bottom nav. */
+    .action-bar {
+      bottom: calc(3.75rem + env(safe-area-inset-bottom));
+    }
+    .action-bar .btn {
+      flex: 1 1 8rem;
+    }
+  }
+  .stat {
+    padding: 0.75rem;
+    background: var(--surface-2);
+    border-radius: 0.5rem;
+  }
+  .stat-number {
+    font-size: 1.5rem;
+    line-height: 2rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* --- Setup ------------------------------------------------------------------ */
+  /* The page's sections, as links: one row that scrolls sideways on a phone,
+     held under the header so a long page always has its map. */
+  .jump-links {
+    position: sticky;
+    top: 3.5rem;
+    z-index: 20;
+    display: flex;
+    gap: 0.375rem;
+    overflow-x: auto;
+    margin-inline: -0.25rem;
+    padding: 0.5rem 0.25rem;
+    background: var(--bg);
+    scrollbar-width: thin;
+  }
+  .jump-links a {
+    flex: none;
+    padding: 0.375rem 0.75rem;
+    border: 1px solid var(--line);
+    border-radius: 9999px;
+    background: var(--surface);
+    font-size: 0.875rem;
+    font-weight: 500;
+  }
+  .jump-links a:hover {
+    border-color: var(--muted);
+  }
+  /* Under the header and the jump links. */
+  .setup-section {
+    scroll-margin-top: 7rem;
+  }
+  /* A value written as ${VAR}: not a field, since the environment decides it. */
+  .env-value {
+    display: flex;
+    gap: 0.5rem;
+    align-items: flex-start;
+    padding: 0.5rem 0.625rem;
+    background: var(--surface-2);
+    border: 1px dashed var(--line);
+    border-radius: 0.375rem;
+    font-size: 0.875rem;
+  }
+  /* What is set, as label and value, as one grid. Not `.facts`: the item
+     panel's facts wrap each pair in a div and have their own rule. */
+  .kv {
+    display: grid;
+    grid-template-columns: minmax(7rem, max-content) 1fr;
+    gap: 0.25rem 1rem;
+    font-size: 0.875rem;
+  }
+  .kv dt {
+    color: var(--muted);
+  }
+  .kv dd {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .state {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3125rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+  }
+  .state-ok { color: var(--ok); }
+  .state-off { color: var(--muted); }
+  .state-warn { color: var(--warn); }
+  .state-bad { color: var(--danger); }
+  details.fold > summary {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 2.75rem;
+    cursor: pointer;
+    font-weight: 600;
+    list-style: none;
+  }
+  details.fold > summary::-webkit-details-marker {
+    display: none;
+  }
+  details.fold > summary::before {
+    content: "";
+    flex: none;
+    width: 0.5rem;
+    height: 0.5rem;
+    border-right: 2px solid currentColor;
+    border-bottom: 2px solid currentColor;
+    transform: rotate(-45deg);
+    transition: transform 0.15s;
+  }
+  details.fold[open] > summary::before {
+    transform: rotate(45deg);
+  }
+  .checklist li {
+    display: flex;
+    gap: 0.625rem;
+    align-items: flex-start;
+    padding: 0.5rem 0;
+  }
+  .checklist li + li {
+    border-top: 1px solid var(--line);
+  }
+}

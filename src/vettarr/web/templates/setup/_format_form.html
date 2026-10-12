@@ -1,0 +1,71 @@
+{# One format's word lists, with a box to try a post against them before saving.
+   Needs `form` (vals, errors, problems, parsed), `format_typed`, `format_lists`, `media_types`, `state`. #}
+{% set v = form.vals %}
+{% set e = form.errors %}
+{% set ro = not state.writable %}
+{% macro words(name, label, hint) %}
+<div>
+    <label class="label" for="format-{{ v.key }}-{{ name|replace('.', '-') }}">{{ label }}</label>
+    <textarea class="input font-mono text-sm" rows="3" id="format-{{ v.key }}-{{ name|replace('.', '-') }}" name="{{ name }}" autocapitalize="none" spellcheck="false"
+              {% if e[name] %}aria-invalid="true" aria-describedby="format-{{ v.key }}-{{ name|replace('.', '-') }}-error"{% endif %}>{{ v.lists.get(name, '') }}</textarea>
+    {% if hint %}<p class="hint">{{ hint }}</p>{% endif %}
+    {% if e[name] %}<p class="field-error" id="format-{{ v.key }}-{{ name|replace('.', '-') }}-error"><span aria-hidden="true">&#10007;</span><span>{{ e[name] }}</span></p>{% endif %}
+</div>
+{% endmacro %}
+<div id="format-{{ v.key }}">
+<form method="post" action="/setup/formats/{{ v.key }}" hx-post="/setup/formats/{{ v.key }}" hx-target="#format-{{ v.key }}" hx-swap="outerHTML" novalidate>
+    <fieldset class="plain-fieldset" {% if ro %}disabled{% endif %}>
+        <legend class="sr-only">The format {{ v.key }}</legend>
+        <div class="max-w-sm">
+            <label class="label" for="format-{{ v.key }}-kind">Kind</label>
+            <select class="input" id="format-{{ v.key }}-kind" name="kind">
+                <option value="card" {% if v.kind == 'card' %}selected{% endif %}>card: labelled lines</option>
+                <option value="scene" {% if v.kind != 'card' %}selected{% endif %}>scene: a release name on the first line</option>
+            </select>
+        </div>
+        <p class="hint mt-3">One word or phrase per line. It matches whole, in any case, and a space matches any run of spaces. <code>/&hellip;/</code> is a regular expression.</p>
+        {% for group, label, what in format_typed %}
+        {% set filled = namespace(n=0, bad=false) %}
+        {% for t in media_types %}
+            {% if v.lists.get(group ~ '.' ~ t) %}{% set filled.n = filled.n + 1 %}{% endif %}
+            {% if e[group ~ '.' ~ t] %}{% set filled.bad = true %}{% endif %}
+        {% endfor %}
+        <details class="fold mt-2" {% if filled.n or filled.bad %}open{% endif %}>
+            <summary>{{ label }}<span class="text-sm font-normal text-muted">{{ filled.n }} of {{ media_types|length }} types</span></summary>
+            <p class="hint mb-2">{{ what }}</p>
+            <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {% for t in media_types %}{{ words(group ~ '.' ~ t, t, '') }}{% endfor %}
+            </div>
+        </details>
+        {% endfor %}
+        <div class="grid gap-3 sm:grid-cols-2 mt-3">
+            {% for name, label, what in format_lists %}{{ words(name, label, what) }}{% endfor %}
+        </div>
+    </fieldset>
+    {% if not ro %}
+    <div class="mt-4">
+        <label class="label" for="format-{{ v.key }}-sample">Try a post against these words, before saving</label>
+        <textarea class="input font-mono text-sm" rows="5" id="format-{{ v.key }}-sample" name="sample" spellcheck="false">{{ v.sample }}</textarea>
+    </div>
+    {% endif %}
+    {% if form.problems %}
+    <div class="notice notice-error mt-3" role="alert">
+        <span aria-hidden="true">&#10007;</span>
+        <div><ul>{% for line in form.problems %}<li class="break-words">{{ line }}</li>{% endfor %}</ul></div>
+    </div>
+    {% endif %}
+    {% if form.parsed %}<div class="mt-3">{% with parsed = form.parsed %}{% include "setup/_parsed.html" %}{% endwith %}</div>{% endif %}
+    {% if not ro %}
+    <div class="flex flex-wrap gap-2 mt-3">
+        <button class="btn btn-secondary btn-lg" name="op" value="test">Read the post</button>
+        <button class="btn btn-primary btn-lg" name="op" value="save">Save</button>
+    </div>
+    {% endif %}
+</form>
+{% if not ro %}
+<form class="mt-2" method="post" action="/setup/formats/{{ v.key }}/delete" hx-post="/setup/formats/{{ v.key }}/delete" hx-swap="none"
+      data-confirm-title="Remove the format {{ v.key }}?" data-confirm="Its word lists are removed from the config file. A source that names it must stop naming it first." data-confirm-action="Remove">
+    <button class="btn btn-quiet text-danger">Remove this format</button>
+</form>
+{% endif %}
+</div>

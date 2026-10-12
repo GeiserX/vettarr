@@ -1,0 +1,378 @@
+# config.yaml: everything the app does is set here. The full contract is
+# docs/CONFIG.md.
+#
+# - A part of the app starts only when its block exists. An integration with
+#   `enabled: false` stays off. This file, as shipped, starts the web UI and
+#   the policy in shadow mode, and nothing else.
+# - Any string may hold ${VAR}; it is read from the environment at start.
+#   Keep every secret that way. A ${VAR} that is not set stops the start and
+#   names the variable. A block with `enabled: false` is not expanded.
+# - `config check` validates this file and lists what would start.
+# - CONFIG_READONLY=1 stops the app from ever writing this file.
+
+# --- Dry run -------------------------------------------------------------------
+# true: nothing outside this database is changed, whoever clicks what. Every
+# add, delete, request, message, reaction, thank and keep-alive becomes a
+# would_have event instead, and the item moves on as if it had happened.
+# DRY_RUN=1 in the environment turns it on whatever this line says.
+dry_run: false
+
+# --- Telegram -----------------------------------------------------------------
+# Needed by userbot and bot sources. api_id and api_hash come from
+# https://my.telegram.org; the bot token from @BotFather.
+#
+# telegram:
+#   api_id: ${TELEGRAM_API_ID}
+#   api_hash: ${TELEGRAM_API_HASH}
+#   phone: ${TELEGRAM_PHONE}          # only asked for when the session logs in again
+#   session_path: /data/sessions/vettarr
+#   bot_token: ${TELEGRAM_BOT_TOKEN}
+#   reviewers: [123456789]            # Telegram user ids allowed to decide
+
+# --- Sources: where posts come from -----------------------------------------
+# userbot: reads a group or channel as your account; the only kind that can
+#          read history (backfill: off | since_last | full).
+# bot:     the bot receives messages in a group, a channel, or `chat: private`
+#          for direct messages. A bot cannot read history.
+# seerr:   Seerr's pending requests, decided by the policy and approved or
+#          declined in Seerr (needs integrations.seerr and integrations.tmdb).
+#          docs/CONFIG.md "Seerr requests" says what to paste in Seerr.
+# on_download / on_reject: delete | react | none. Default none: the app never
+# touches a post unless you say so.
+sources: []
+#   - key: films
+#     kind: userbot
+#     chat: -1001234567890
+#     backfill: since_last
+#     formats: [card, scene]
+#     on_download: none
+#     on_reject: none
+#   - key: inbox
+#     kind: bot
+#     chat: private
+#     allowed_senders: reviewers      # reviewers | anyone | [user ids]
+#     direct_adds: reviewers          # whose .torrent or magnet is added as it is:
+#                                     # reviewers | anyone | off
+#     on_download: react
+#     notify_on_review: true
+#   - key: requests
+#     kind: seerr
+#     webhook_secret: ${SEERR_WEBHOOK_SECRET}   # Seerr's Authorization Header; at least
+#                                     # 16 characters. Seerr posts to /hooks/seerr/requests
+#     poll_minutes: 5                 # the pending list is read this often as well
+#     allowed_senders: anyone         # anyone | [Seerr user ids]
+
+# --- Formats: how a post is read --------------------------------------------
+# Word lists, not code. Words match case-insensitively, anywhere in the post,
+# and a space matches any run of whitespace. A word between slashes is a
+# regular expression: '/Films?\s*WEB/'. Copy a profile and swap the words for
+# the ones your group writes. A post is tried against its source's formats in
+# order; the first that reads a title and a type wins. Quality, source, size,
+# group, SxxEyy, (YYYY) and [PACK] are read by the app for every format.
+formats:
+  # A card: labelled lines, for example
+  #   NEW MOVIE
+  #   Title: Some Film
+  #   Year: 2024
+  #   Type: Movie - 1080p - WEB-DL - 4.2 GB
+  #   Link: https://tracker-a.example/details.php?id=42
+  - key: card
+    kind: card
+    type_headers:                     # one of these in the post decides the type
+      ebook: [NEW EBOOK, NEW BOOK]
+      audiobook: [NEW AUDIOBOOK]
+      magazine: [NEW MAGAZINE]
+      comic: [NEW COMIC, NEW MANGA]
+      music: [NEW ALBUM, NEW MUSIC]
+    type_hints:                       # weaker: suggest a type anywhere in the post
+      movie: [NEW MOVIE]
+      series: [NEW SERIES]
+    # Category names in a header or Type line. One that opens a line and is
+    # followed by a dash or an arrow ("Movies -> WEB-DL") also hints the type;
+    # inside a title ("Some Show - 1998") it hints nothing.
+    category_words:
+      movie: [Movie, Movies, Film]
+      series: [Series, Show]
+    fields:
+      title: [Title]
+      link: [Link]
+      year: [Year]
+      type: [Type]                    # Type: <category> - <quality> - <source> - <size>
+    ignore_hosts: [instagram.com, tiktok.com, youtube.com, youtu.be, x.com, twitter.com, facebook.com]
+    # Whole words that name a kind of media. A message with no card in it that
+    # holds one ("can someone find that film") is kept for review, not ignored.
+    media_words: [film, films, movie, movies, series, season, episode, book, books, audiobook, magazine, comic, album]
+
+  # A scene release name on the first line:
+  #   Some.Film.2024.1080p.WEB-DL.x264-GROUP
+  - key: scene
+    kind: scene
+
+# --- Providers: trackers you have an account on ------------------------------
+# Uncomment the block for your tracker's software and fill in your own host.
+# `links` turns a details link in a post into the exact torrent, no search.
+# Every link pattern carries examples; `config check` proves each one.
+# Credentials are only ever sent to base_url's host and its aliases, compared
+# exactly: a subdomain is another host. `search` names the tracker's software:
+# the direct search after Prowlarr finds nothing, and the login form
+# `auth.from: login` fills in.
+# thank and keep_alive are off unless you turn them on. Some trackers forbid
+# automation; read their rules first.
+providers: []
+## xbtit
+#   - key: tracker-a
+#     base_url: https://tracker-a.example
+#     aliases: [www.tracker-a.example]
+#     auth:
+#       from: cookie_file
+#       cookie_file: /data/cookies/tracker-a.txt
+#     links:
+#       - pattern: 'index\.php\?page=torrent-details[^&\s]*&id=(?P<id>[0-9a-fA-F]{40})'
+#         download_url: '{base}/download.php?id={id}'
+#         examples:
+#           - url: 'https://tracker-a.example/index.php?page=torrent-details&id=0123456789abcdef0123456789abcdef01234567'
+#             id: '0123456789abcdef0123456789abcdef01234567'
+#     search: xbtit
+#     thank:                          # xbtit's thanks form; check your site's
+#       enabled: false
+#       path: /thanks.php
+#       method: POST
+#       body: {infohash: '{id}'}
+#     keep_alive:
+#       enabled: false
+#       every_minutes: 360
+#       jitter_minutes: 0             # each wait is every_minutes plus or minus up to this, at random
+#       path: /index.php?page=torrents
+## NexusPHP
+#   - key: tracker-b
+#     base_url: https://tracker-b.example
+#     auth:
+#       from: prowlarr
+#     links:
+#       - pattern: 'details\.php\?id=(?P<id>\d+)'
+#         download_url: '{base}/download.php?id={id}'
+#         examples:
+#           - url: 'https://tracker-b.example/details.php?id=42'
+#             id: '42'
+#     search: nexusphp
+#     thank:
+#       enabled: false
+#       path: /thanks.php
+#       method: POST
+#       body: 'id={id}'
+#     keep_alive:
+#       enabled: false
+#       every_minutes: 360
+#       path: /torrents.php
+## UNIT3D
+#   - key: tracker-c
+#     base_url: https://tracker-c.example
+#     auth:
+#       from: login
+#       username: me
+#       password: ${TRACKER_C_PASSWORD}
+#       cookie_file: /data/cookies/tracker-c.txt
+#     links:
+#       - pattern: '/torrents/(?P<id>\d+)'
+#         download_url: '{base}/torrents/download/{id}'
+#         examples:
+#           - url: 'https://tracker-c.example/torrents/42'
+#             id: '42'
+#     search: unit3d
+#     logged_out_marker: 'name="password"'
+#     thank:                          # UNIT3D thanks through a Livewire button
+#       enabled: false
+#       path: /torrents/{id}
+#       method: LIVEWIRE
+#     keep_alive:
+#       enabled: false
+#       every_minutes: 360
+#       path: /torrents
+#     guard:                          # when to stop contacting a failing tracker
+#       error_limit: 3
+#       backoff_minutes: 15
+#       max_backoff_minutes: 360
+
+# --- Integrations: services you run ------------------------------------------
+# Turn one on with `enabled: true` once its variables are set.
+integrations:
+  prowlarr:
+    enabled: false
+    url: http://prowlarr:9696
+    api_key: ${PROWLARR_API_KEY}
+    # Prowlarr category ids sent with a search. A type not listed sends its
+    # standard Newznab category (movie 2000, series 5000, audiobook 3030,
+    # ebook 7020, magazine 7010, comic 7030, music 3000); [] searches all.
+    categories:
+      movie: [2000]
+      series: [5000]
+      ebook: [7000]
+  qbittorrent:
+    enabled: false
+    url: http://qbittorrent:8080
+    username: admin
+    password: ${QBITTORRENT_PASSWORD}
+    # Per media type. A type not listed is added with no category, and saved
+    # where its category (or qBittorrent's default) saves.
+    categories:
+      movie: movies
+      series: tv
+      ebook: books
+    save_paths: {}
+  radarr:
+    enabled: false
+    url: http://radarr:7878
+    api_key: ${RADARR_API_KEY}
+    root_folder: /movies
+    quality_profile: HD-1080p
+  sonarr:
+    enabled: false
+    url: http://sonarr:8989
+    api_key: ${SONARR_API_KEY}
+    root_folder: /tv
+    quality_profile: HD-1080p
+  seerr:
+    enabled: false
+    url: http://seerr:5055
+    api_key: ${SEERR_API_KEY}
+    user_id: 2                        # requests are made as this Seerr user
+  tmdb:
+    enabled: false
+    api_key: ${TMDB_API_KEY}
+    language: en-US
+  # The parents guide (violence, nudity, ...) comes from IMDb's undocumented
+  # website API. IMDb's terms forbid automated use without its consent: this
+  # is for a private, single-user instance, at your own risk, and it can stop
+  # working without notice. It needs no key and runs only while a rule reads
+  # an imdb.* signal. A severity voted by fewer than min_votes people counts
+  # as missing.
+  imdb_guide:
+    enabled: true
+    min_votes: 20
+  google_books:
+    enabled: false
+    api_key: ${GOOGLE_BOOKS_API_KEY}
+  jellyfin:
+    enabled: false
+    url: http://jellyfin:8096
+    api_key: ${JELLYFIN_API_KEY}
+
+# --- Delivery: where an approved item goes, per media type -------------------
+# qbittorrent | radarr (movie) | sonarr (series) | seerr (movie, series) | none.
+# The target's integration must be on. List every type you receive (movie,
+# series, audiobook, ebook, magazine, comic, music): a type not listed here is
+# not delivered, and an approved item of that type comes back to you. `config
+# check` and the start of the app warn about the types left out.
+deliver: {}
+# The download client: the post's own torrent, the one it links to, or the
+# best release of the search.
+#   movie: qbittorrent
+#   series: qbittorrent
+#   ebook: qbittorrent
+# Radarr and Sonarr add the title and search for it themselves (they need
+# root_folder and quality_profile above). A .torrent, a magnet or a linked
+# torrent in the post is not used: the item is delivered by title.
+#   movie: radarr
+#   series: sonarr
+# Seerr gets a request, made as integrations.seerr.user_id.
+#   movie: seerr
+#   series: seerr
+# Decide and record only: nothing is fetched or added.
+#   music: none
+#   ebook: qbittorrent
+
+# --- Policy: what downloads by itself ---------------------------------------
+# auto_approve: off (every item waits for you) | shadow (decides and records,
+# acts on nothing) | on.
+# A rule checks one signal with one operator against one value and says what
+# happens when it hits: approve | review | reject | notify. Reject never
+# deletes the post. Signals and operators: docs/CONFIG.md.
+policy:
+  auto_approve: shadow
+  types:
+    movie:
+      mode: rules                     # rules | always | never
+      when_data_missing: wait         # wait | review | approve
+      max_wait_hours: 24
+    series:
+      mode: rules
+      when_data_missing: wait
+      max_wait_hours: 24
+    magazine:
+      mode: always
+    ebook:
+      mode: never
+    audiobook:
+      mode: never
+    comic:
+      mode: never
+    music:
+      mode: never
+  lists: {}
+  #   unwanted: [some keyword, another keyword]
+  rules:
+    - id: violence
+      name: Violence is severe
+      check: imdb.violence
+      at_least: severe
+      split_vote: 0.40                # also hits when 40% of votes are at or above
+      on_hit: review
+    - id: nudity
+      name: Nudity is moderate or more
+      check: imdb.nudity
+      at_least: moderate
+      split_vote: 0.40
+      on_hit: review
+    - id: frightening
+      name: Frightening is severe
+      check: imdb.frightening
+      at_least: severe
+      split_vote: 0.40
+      on_hit: review
+    - id: adult-certification
+      name: Rated for adults only
+      check: certification            # COUNTRY:rating; add your own country
+      any_of: [US:NC-17, US:X, GB:R18, GB:18]
+      on_hit: review
+    # - id: unwanted-keywords
+    #   check: keyword
+    #   matches_any: unwanted
+    #   on_hit: reject
+
+# --- Release words: how a post names a language, subtitles, a whole season ----
+# Read by the audio_language, subtitles and season_complete signals. These are
+# the defaults, in English. A list you write replaces its default whole, so
+# add your group's words to the English ones. Same word rules as formats.
+release_words:
+  languages:                          # language code: the words that name it
+    es: [spanish, spa, esp]
+    en: [english, eng]
+    fr: [french, truefrench, vff, vfq]
+    de: [german, ger]
+    it: [italian, ita]
+    pt: [portuguese]
+    ja: [japanese, jap, jpn]
+    ko: [korean, kor]
+    ca: [catalan]
+  subtitles: [sub, subs, subtitle, subtitles]   # "Subs: English, French"
+  subtitle_tags: {}                   # a tag that alone means subtitled: {en: [subbed]}
+  full_season: [complete, '/\bseason\s+\d+\b/']   # [PACK] and a bare S01 always count
+  # A bracket of these alone is left out of a book's title: "(MP3)", "[EPUB, PDF]".
+  format_tags: [mp3, m4a, m4b, epub, pdf, mobi, azw, azw3, cbr, cbz]
+
+# --- Notifications -----------------------------------------------------------
+# An Apprise API /notify endpoint or a plain http(s) webhook; gets each
+# decision, each item that needs you, and tracker session changes, as JSON.
+# notify:
+#   url: ${NOTIFY_URL}
+
+# --- Web UI ------------------------------------------------------------------
+web:
+  bind: 0.0.0.0
+  port: 4850
+  # auth:
+  #   # the line `vettarr web hash-password` prints
+  #   password_hash: ${WEB_PASSWORD_HASH}
+  #   # or, behind a proxy that signs users in:
+  #   # trusted_header: Remote-User
+  # base_url: https://vettarr.example

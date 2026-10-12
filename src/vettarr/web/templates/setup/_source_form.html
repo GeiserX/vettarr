@@ -1,0 +1,132 @@
+{# The form of one source: a new one, or a change to one in the file.
+   Needs `form` (vals, errors, problems, new), `format_keys`, `post_actions`, `state`. #}
+{% set v = form.vals %}
+{% set e = form.errors %}
+{% set slug = v.original or ('new-' ~ v.kind) %}
+{% set ro = not state.writable %}
+{% set effect = {'none': 'left alone', 'react': 'reacted to', 'delete': 'deleted'} %}
+{% macro bad(name) %}{% if e[name] %} aria-invalid="true" aria-describedby="source-{{ slug }}-{{ name }}-error"{% endif %}{% endmacro %}
+{% macro error(name) %}{% if e[name] %}<p class="field-error" id="source-{{ slug }}-{{ name }}-error"><span aria-hidden="true">&#10007;</span><span>{{ e[name] }}</span></p>{% endif %}{% endmacro %}
+<div id="source-form-{{ slug }}">
+<form method="post" action="/setup/sources" hx-post="/setup/sources" hx-target="#source-form-{{ slug }}" hx-swap="outerHTML" novalidate>
+    <fieldset class="plain-fieldset" {% if ro %}disabled{% endif %}>
+        <legend class="sr-only">{{ 'A new ' ~ v.kind ~ ' source' if form.new else 'The source ' ~ v.key }}</legend>
+        <input type="hidden" name="original" value="{{ v.original }}">
+        <input type="hidden" name="kind" value="{{ v.kind }}">
+        {% if not form.new %}<input type="hidden" name="key" value="{{ v.key }}">{% endif %}
+        <div class="grid gap-3 sm:grid-cols-2 mt-3">
+            {% if form.new %}
+            <div>
+                <label class="label" for="source-{{ slug }}-key">Key</label>
+                <input class="input font-mono" id="source-{{ slug }}-key" name="key" value="{{ v.key }}" placeholder="films" autocapitalize="none" spellcheck="false"{{ bad('key') }}>
+                <p class="hint">Its name in the file and on every item it brings: lowercase letters, digits, - and _.</p>
+                {{ error('key') }}
+            </div>
+            {% endif %}
+            {% if v.kind != 'seerr' %}
+            <div>
+                <label class="label" for="source-{{ slug }}-chat">Chat</label>
+                <input class="input font-mono" id="source-{{ slug }}-chat" name="chat" value="{{ v.chat }}" placeholder="{{ '-1001234567890' if v.kind == 'userbot' else 'private' }}" autocapitalize="none" spellcheck="false"{{ bad('chat') }}>
+                <p class="hint">{% if v.kind == 'userbot' %}A chat id or an @username of a group or channel your account is in.{% else %}A chat id, an @username, or <code>private</code> for messages sent to the bot itself.{% endif %}</p>
+                {{ error('chat') }}
+            </div>
+            {% endif %}
+            {% if v.kind == 'userbot' %}
+            <div>
+                <label class="label" for="source-{{ slug }}-backfill">Posts from before</label>
+                <select class="input" id="source-{{ slug }}-backfill" name="backfill"{{ bad('backfill') }}>
+                    {% for value, label in (('', 'since the last one read (default)'), ('since_last', 'since the last one read'), ('full', 'the whole history'), ('off', 'none: only new posts')) %}
+                    <option value="{{ value }}" {% if v.backfill == value %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+                {{ error('backfill') }}
+            </div>
+            {% endif %}
+            {% if v.kind == 'seerr' %}
+            <div>
+                <label class="label" for="source-{{ slug }}-poll_minutes">Minutes between two reads of Seerr</label>
+                <input class="input" id="source-{{ slug }}-poll_minutes" name="poll_minutes" value="{{ v.poll_minutes }}" placeholder="5" inputmode="numeric"{{ bad('poll_minutes') }}>
+                {{ error('poll_minutes') }}
+            </div>
+            <div>
+                <label class="label" for="source-{{ slug }}-webhook_secret">Webhook secret
+                    <span class="state state-{{ 'ok' if v.webhook_secret_state else 'off' }} ml-1"><span aria-hidden="true">{{ '&#10003;'|safe if v.webhook_secret_state else '&#9675;'|safe }}</span>{{ v.webhook_secret_state or 'not set' }}</span>
+                </label>
+                <input class="input" type="password" id="source-{{ slug }}-webhook_secret" name="webhook_secret" autocomplete="new-password"
+                       placeholder="{{ 'Leave empty to keep it' if v.webhook_secret_state and not ro else '' }}"{{ bad('webhook_secret') }}>
+                {% if v.webhook_secret_state and not ro %}
+                <label class="check" for="source-{{ slug }}-webhook_secret-clear">
+                    <input type="checkbox" id="source-{{ slug }}-webhook_secret-clear" name="webhook_secret-clear" value="1">
+                    <span>Remove it from the file</span>
+                </label>
+                {% endif %}
+                <p class="hint">What Seerr's webhook sends as its Authorization header to <code>/hooks/seerr/{{ v.key or '&lt;key&gt;'|safe }}</code>: at least 16 characters, or a <code>${VAR}</code>. Without it there is no webhook, and the poll alone reads Seerr.</p>
+                {{ error('webhook_secret') }}
+            </div>
+            {% endif %}
+            <div>
+                <label class="label" for="source-{{ slug }}-allowed_senders">Whose messages count</label>
+                <select class="input" id="source-{{ slug }}-allowed_senders" name="allowed_senders"{{ bad('allowed_senders') }}>
+                    <option value="" {% if not v.allowed_senders %}selected{% endif %}>{{ 'the reviewers (default)' if v.kind == 'bot' else 'anyone (default)' }}</option>
+                    <option value="reviewers" {% if v.allowed_senders == 'reviewers' %}selected{% endif %}>the reviewers</option>
+                    <option value="anyone" {% if v.allowed_senders == 'anyone' %}selected{% endif %}>anyone</option>
+                    {% if v.allowed_senders == 'listed' %}<option value="listed" selected>the user ids listed in the file</option>{% endif %}
+                </select>
+                {{ error('allowed_senders') }}
+            </div>
+            {% if v.kind != 'seerr' %}
+            <div>
+                <label class="label" for="source-{{ slug }}-direct_adds">Whose own torrent is added as it is</label>
+                <select class="input" id="source-{{ slug }}-direct_adds" name="direct_adds"{{ bad('direct_adds') }}>
+                    {% for value, label in (('', 'the reviewers (default)'), ('reviewers', 'the reviewers'), ('anyone', 'anyone'), ('off', 'nobody')) %}
+                    <option value="{{ value }}" {% if v.direct_adds == value %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+                <p class="hint">A .torrent attachment or a magnet link, added without a search.</p>
+                {{ error('direct_adds') }}
+            </div>
+            <div>
+                <label class="label" for="source-{{ slug }}-on_download">Once it is downloaded, the post is</label>
+                <select class="input" id="source-{{ slug }}-on_download" name="on_download"{{ bad('on_download') }}>
+                    {% for value in post_actions %}<option value="{{ value }}" {% if v.on_download == value %}selected{% endif %}>{{ effect[value] }}</option>{% endfor %}
+                </select>
+                {{ error('on_download') }}
+            </div>
+            <div>
+                <label class="label" for="source-{{ slug }}-on_reject">Once it is rejected, the post is</label>
+                <select class="input" id="source-{{ slug }}-on_reject" name="on_reject"{{ bad('on_reject') }}>
+                    {% for value in post_actions %}<option value="{{ value }}" {% if v.on_reject == value %}selected{% endif %}>{{ effect[value] }}</option>{% endfor %}
+                </select>
+                {{ error('on_reject') }}
+            </div>
+            {% endif %}
+        </div>
+        {% if format_keys and v.kind != 'seerr' %}
+        <fieldset class="plain-fieldset sentence text-sm mt-3"{{ bad('formats') }}>
+            <legend class="float-left mr-2 py-2 font-semibold">Read with</legend>
+            {% for key in format_keys %}
+            <label class="check" for="source-{{ slug }}-formats-{{ key }}">
+                <input type="checkbox" id="source-{{ slug }}-formats-{{ key }}" name="formats" value="{{ key }}" {% if key in v.formats %}checked{% endif %}>
+                <span class="font-mono">{{ key }}</span>
+            </label>
+            {% endfor %}
+            <span class="text-muted">(none ticked: every format, in the file's order)</span>
+        </fieldset>
+        {{ error('formats') }}
+        {% endif %}
+        <label class="check mt-1" for="source-{{ slug }}-notify_on_review">
+            <input type="checkbox" id="source-{{ slug }}-notify_on_review" name="notify_on_review" value="1" {% if v.notify_on_review %}checked{% endif %}>
+            <span>Send each item it holds for review to the reviewers, through the bot</span>
+        </label>
+    </fieldset>
+    {% if form.problems %}
+    <div class="notice notice-error mt-3" role="alert">
+        <span aria-hidden="true">&#10007;</span>
+        <div><strong>Not saved.</strong>
+            <ul class="list-disc pl-5">{% for line in form.problems %}<li class="break-words">{{ line }}</li>{% endfor %}</ul>
+        </div>
+    </div>
+    {% endif %}
+    {% if not ro %}<button class="btn btn-primary btn-lg mt-3">{{ 'Add the source' if form.new else 'Save' }}</button>{% endif %}
+</form>
+</div>

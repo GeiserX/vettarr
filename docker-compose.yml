@@ -1,0 +1,54 @@
+# vettarr and its database, from an empty start:
+#
+#   mkdir -p data && cp config.example.yaml data/config.yaml
+#   printf 'POSTGRES_PASSWORD=%s\n' "$(openssl rand -hex 16)" > .env
+#   docker compose up -d
+#
+# The app reads data/config.yaml (docs/CONFIG.md) and creates its schema in the
+# empty database on the first start. Secrets the file names as ${VAR} go in .env
+# next to this file.
+services:
+  app:
+    build: .
+    # Or a released image instead of building: image: drumsergio/vettarr:<version>
+    restart: unless-stopped
+    # Longer than the 30 seconds the app gives its components to stop.
+    stop_grace_period: 40s
+    ports:
+      # This machine only: the example config has no password. Once web.auth
+      # is set, "4850:4850" publishes the UI to the network.
+      - "127.0.0.1:4850:4850"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - CONFIG_PATH=/data/config.yaml
+      - POSTGRES_HOST=postgres
+      - POSTGRES_USER=vettarr
+      - POSTGRES_DB=vettarr
+      - POSTGRES_PASSWORD               # from .env
+    volumes:
+      # config.yaml beside the two volumes the image declares, mounted by name
+      # so neither ends up in an anonymous volume: the Telegram and web
+      # sessions, and the torrents a post brought.
+      - ./data:/data
+      - ./data/sessions:/data/sessions
+      - ./data/torrents:/data/torrents
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=vettarr
+      - POSTGRES_DB=vettarr
+      - POSTGRES_PASSWORD               # from .env; Postgres will not start without it
+    volumes:
+      - ./postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vettarr -d vettarr"]
+      interval: 5s
+      timeout: 3s
+      retries: 5

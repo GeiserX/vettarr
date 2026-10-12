@@ -1,0 +1,301 @@
+{# The policy editor: what every POST to /policy* answers with, and what policy.html includes.
+   One form; its values are `form` (routes/policy.py), every one a string. #}
+{% set ro = not state.writable %}
+{# The first field marked invalid gets the focus, unless an edit names its own (focus). #}
+{% set first = namespace(free=not focus) %}
+{% macro bad(message, id) %}{% if message %} aria-invalid="true" aria-describedby="{{ id }}"{% if first.free %} autofocus{% set first.free = false %}{% endif %}{% endif %}{% endmacro %}
+{# The control the keyboard goes to after an edit (routes/policy.py, change): htmx focuses it once the editor is swapped. #}
+{% macro af(id) %}{% if focus == id %} autofocus{% endif %}{% endmacro %}
+{% macro error(message, id) %}{% if message %}<p class="field-error" id="{{ id }}"><span aria-hidden="true">&#10007;</span><span>{{ message }}</span></p>{% endif %}{% endmacro %}
+<div id="policy-editor">
+{% include "_config_state.html" %}
+{% if warnings %}
+<div class="notice notice-warn mb-4" role="status">
+    <span aria-hidden="true">&#9888;</span>
+    <div><strong>Worth a look.</strong>
+        <ul class="mt-1 list-disc pl-5">{% for line in warnings %}<li>{{ line }}</li>{% endfor %}</ul>
+    </div>
+</div>
+{% endif %}
+<form id="policy-form" method="post" action="/policy" hx-post="/policy" hx-target="#policy-editor" hx-swap="outerHTML show:#policy-result:top" novalidate>
+<fieldset class="plain-fieldset space-y-6" {% if ro %}disabled{% endif %}>
+    <legend class="sr-only">The policy</legend>
+    {# Enter in a field presses a form's first submit button. This one writes nothing. #}
+    <button class="sr-only" tabindex="-1" aria-hidden="true" name="op" value="refresh" formaction="/policy/edit" hx-post="/policy/edit" hx-swap="outerHTML">Refresh</button>
+
+    <section class="card p-4" aria-labelledby="h-auto">
+        <h2 class="setup-title" id="h-auto">Auto-approve</h2>
+        <div class="grid gap-3 sm:grid-cols-3 mt-3" role="radiogroup" aria-labelledby="h-auto">
+            {% for value, label, what in auto_approve_options %}
+            <label class="option-card" for="auto-{{ value }}">
+                <input type="radio" id="auto-{{ value }}" name="auto_approve" value="{{ value }}" {% if form.auto_approve == value %}checked{% endif %}>
+                <span><span class="font-semibold">{{ label }}</span><span class="block text-sm text-muted mt-0.5">{{ what }}</span></span>
+            </label>
+            {% endfor %}
+        </div>
+        {{ error(form.errors.auto_approve, 'err-auto') }}
+        <div class="sentence text-sm mt-4">
+            <label for="min_votes">An IMDb severity counts once it has</label>
+            <input class="field-inline w-24" type="number" min="0" inputmode="numeric" id="min_votes" name="min_votes"
+                   value="{{ form.min_votes }}" placeholder="{{ default_votes }}"{{ bad(form.errors.min_votes, 'err-min-votes') }}>
+            <span>votes, unless a rule sets its own.</span>
+        </div>
+        {{ error(form.errors.min_votes, 'err-min-votes') }}
+    </section>
+
+    <section class="card p-4" aria-labelledby="h-types">
+        <h2 class="setup-title" id="h-types">Types</h2>
+        <p class="hint">How each kind of item is decided. Waiting applies to a type decided by the rules, when a rule cannot be checked yet.</p>
+        <table class="stack-table mt-3">
+            <thead>
+                <tr><th scope="col">Type</th><th scope="col">Decided</th><th scope="col">When data is missing</th><th scope="col">Then hold after</th></tr>
+            </thead>
+            <tbody>
+                {% for t in media_types %}
+                {% set row = form.types[t] %}
+                {% set problem = row.errors.values()|join('; ') %}
+                <tr>
+                    <th scope="row"><span class="badge badge-{{ t }}">{{ t }}</span></th>
+                    <td data-label="Decided">
+                        <select class="field-inline type-mode" id="type-{{ t }}-mode" name="type-{{ t }}-mode" aria-label="{{ t }}: decided"{{ bad(row.errors.mode, 'err-type-' ~ t) }}>
+                            {% for value, label in modes %}<option value="{{ value }}" {% if row.mode == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+                        </select>
+                    </td>
+                    <td class="when-rules" data-label="When data is missing">
+                        <select class="field-inline" id="type-{{ t }}-missing" name="type-{{ t }}-missing" aria-label="{{ t }}: when data is missing"{{ bad(row.errors.when_data_missing, 'err-type-' ~ t) }}>
+                            {% for value, label in when_missing %}<option value="{{ value }}" {% if row.missing == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+                        </select>
+                    </td>
+                    <td class="when-rules" data-label="Then hold after">
+                        <input class="field-inline w-20" type="number" min="0" inputmode="numeric" id="type-{{ t }}-wait" name="type-{{ t }}-wait"
+                               value="{{ row.wait }}" aria-label="{{ t }}: hours to wait for data"{{ bad(row.errors.max_wait_hours, 'err-type-' ~ t) }}>
+                        <span class="text-sm text-muted">hours</span>
+                    </td>
+                </tr>
+                {% if problem %}<tr class="stack-table-note"><td colspan="4">{{ error(problem, 'err-type-' ~ t) }}</td></tr>{% endif %}
+                {% endfor %}
+            </tbody>
+        </table>
+    </section>
+
+    <section aria-labelledby="h-rules">
+        <h2 class="setup-title" id="h-rules">Rules</h2>
+        <p class="hint">Checked top to bottom. Every rule that holds or rejects counts. An approving rule ends the check, so it goes after them.</p>
+        {% if not form.rules %}<p class="card p-4 mt-3 text-muted">No rule yet. A type decided by the rules with no rule that applies to it is held for you.</p>{% endif %}
+        <ol class="space-y-3 mt-3">
+            {% for rule in form.rules %}
+            {% set i = loop.index0 %}
+            {% set n = loop.index %}
+            {% set signal = signals[rule.check] %}
+            {% set kind = signal.kind %}
+            {% set op = rule.operator %}
+            {% set e = rule.errors %}
+            {% set whole = e[''] or e.value %}
+            <li class="card p-4" id="rule-{{ i }}">
+                <div class="flex flex-wrap items-center gap-2">
+                    <span class="text-sm font-bold text-muted" aria-hidden="true">{{ n }}</span>
+                    <label class="sr-only" for="rule-{{ i }}-name">Rule {{ n }}: name</label>
+                    <input class="field-inline grow min-w-0 basis-48 font-semibold" id="rule-{{ i }}-name" name="rule-{{ i }}-name" value="{{ rule.name }}" placeholder="A name for this rule"{{ af('rule-' ~ i ~ '-name') }}>
+                    <label class="sr-only" for="rule-{{ i }}-id">Rule {{ n }}: id</label>
+                    <input class="field-inline w-48 sm:w-56 font-mono text-sm" id="rule-{{ i }}-id" name="rule-{{ i }}-id" value="{{ rule.id }}" placeholder="id" autocapitalize="none" spellcheck="false"{{ bad(e.id, 'err-rule-' ~ i ~ '-id') }}>
+                    {% if not ro %}
+                    <span class="flex gap-1 ml-auto">
+                        <button class="btn btn-quiet btn-icon" id="rule-{{ i }}-up" name="op" value="up:{{ i }}"{{ af('rule-' ~ i ~ '-up') }} formaction="/policy/edit" hx-post="/policy/edit" hx-swap="outerHTML" aria-label="Move rule {{ n }} up" {% if loop.first %}disabled{% endif %}>
+                            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 14l6-6 6 6"/></svg>
+                        </button>
+                        <button class="btn btn-quiet btn-icon" id="rule-{{ i }}-down" name="op" value="down:{{ i }}"{{ af('rule-' ~ i ~ '-down') }} formaction="/policy/edit" hx-post="/policy/edit" hx-swap="outerHTML" aria-label="Move rule {{ n }} down" {% if loop.last %}disabled{% endif %}>
+                            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 10l6 6 6-6"/></svg>
+                        </button>
+                        <button class="btn btn-quiet btn-icon" id="rule-{{ i }}-remove" name="op" value="remove-rule:{{ i }}" formaction="/policy/edit" hx-post="/policy/edit" hx-swap="outerHTML" aria-label="Remove rule {{ n }}">
+                            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+                        </button>
+                    </span>
+                    {% endif %}
+                </div>
+                {{ error(e.id, 'err-rule-' ~ i ~ '-id') }}
+
+                <div class="sentence mt-3">
+                    <span>When</span>
+                    <select class="field-inline text-sm" id="rule-{{ i }}-check" name="rule-{{ i }}-check" aria-label="Rule {{ n }}: what is checked"
+                            hx-post="/policy/edit" hx-trigger="change" hx-swap="outerHTML"{{ bad(e.check, 'err-rule-' ~ i) }}>
+                        {% for label, names in groups %}
+                        <optgroup label="{{ label }}">
+                            {% for name in names %}<option value="{{ name }}" {% if rule.check == name %}selected{% endif %}>{{ name|signal_label }}</option>{% endfor %}
+                        </optgroup>
+                        {% endfor %}
+                    </select>
+                    <select class="field-inline" id="rule-{{ i }}-operator" name="rule-{{ i }}-operator" aria-label="Rule {{ n }}: comparison"
+                            hx-post="/policy/edit" hx-trigger="change" hx-swap="outerHTML">
+                        {% for name in signal.operators %}<option value="{{ name }}" {% if op == name %}selected{% endif %}>{{ operator_words[name] }}</option>{% endfor %}
+                    </select>
+
+                    {% if op == 'between' and kind == 'time' %}
+                    <input class="field-inline" type="time" id="rule-{{ i }}-from" name="rule-{{ i }}-from" value="{{ rule['from'] }}" aria-label="Rule {{ n }}: from"{{ bad(whole, 'err-rule-' ~ i) }}>
+                    <span>and</span>
+                    <input class="field-inline" type="time" id="rule-{{ i }}-to" name="rule-{{ i }}-to" value="{{ rule.to }}" aria-label="Rule {{ n }}: to"{{ bad(whole, 'err-rule-' ~ i) }}>
+                    {% elif op == 'between' %}
+                    <input class="field-inline w-24" type="number" step="any" inputmode="decimal" id="rule-{{ i }}-low" name="rule-{{ i }}-low" value="{{ rule.low }}" aria-label="Rule {{ n }}: lowest"{{ bad(whole, 'err-rule-' ~ i) }}>
+                    <span>and</span>
+                    <input class="field-inline w-24" type="number" step="any" inputmode="decimal" id="rule-{{ i }}-high" name="rule-{{ i }}-high" value="{{ rule.high }}" aria-label="Rule {{ n }}: highest"{{ bad(whole, 'err-rule-' ~ i) }}>
+                    {% elif op == 'is' %}
+                    <select class="field-inline" id="rule-{{ i }}-flag" name="rule-{{ i }}-flag" aria-label="Rule {{ n }}: true or false">
+                        <option value="true" {% if rule.flag == 'true' %}selected{% endif %}>true</option>
+                        <option value="false" {% if rule.flag != 'true' %}selected{% endif %}>false</option>
+                    </select>
+                    {% elif kind == 'severity' %}
+                    <fieldset class="sev-chips" data-op="{{ op }}"{{ bad(whole, 'err-rule-' ~ i) }}>
+                        <legend class="sr-only">Rule {{ n }}: severity</legend>
+                        {% for severity in severities %}
+                        <input class="sr-only" type="radio" id="rule-{{ i }}-severity-{{ severity }}" name="rule-{{ i }}-severity" value="{{ severity }}" {% if rule.severity == severity %}checked{% endif %}>
+                        <label class="pill pill-{{ severity }}" for="rule-{{ i }}-severity-{{ severity }}"><span class="sev-mark">{{ mark[rule.on_hit] or 'hold' }} {{ 'from' if op == 'at_least' else 'up to' }}</span>{{ severity|capitalize }}</label>
+                        {% endfor %}
+                    </fieldset>
+                    {% elif kind == 'resolution' and op in ('at_least', 'at_most') %}
+                    <select class="field-inline" id="rule-{{ i }}-resolution" name="rule-{{ i }}-resolution" aria-label="Rule {{ n }}: resolution">
+                        {% for name in resolutions %}<option value="{{ name }}" {% if rule.resolution == name %}selected{% endif %}>{{ name }}</option>{% endfor %}
+                    </select>
+                    {% elif kind == 'certification' and op == 'at_least' %}
+                    <input class="field-inline w-28 font-mono text-sm" id="rule-{{ i }}-cert" name="rule-{{ i }}-cert" value="{{ rule.cert }}" placeholder="ES:18" aria-label="Rule {{ n }}: certification, as COUNTRY:rating"{{ bad(whole, 'err-rule-' ~ i) }}>
+                    {% elif op in ('at_least', 'at_most') %}
+                    <input class="field-inline w-24" type="number" step="any" inputmode="decimal" id="rule-{{ i }}-number" name="rule-{{ i }}-number" value="{{ rule.number }}" aria-label="Rule {{ n }}: number"{{ bad(whole, 'err-rule-' ~ i) }}>
+                    {% else %}
+                    <span class="terms">
+                        <select class="field-inline" id="rule-{{ i }}-list" name="rule-{{ i }}-list" aria-label="Rule {{ n }}: where the words are"{{ bad(whole, 'err-rule-' ~ i) }}>
+                            <option value="">these, one per line</option>
+                            {% set names = form.lists|map(attribute='name')|select|list %}
+                            {% for name in names %}<option value="{{ name }}" {% if rule.list == name %}selected{% endif %}>the list {{ name }}</option>{% endfor %}
+                            {% if rule.list and rule.list not in names %}<option value="{{ rule.list }}" selected>the list {{ rule.list }} (missing)</option>{% endif %}
+                        </select>
+                        <textarea class="field-inline font-mono text-sm" rows="{{ [[rule.words.count('\n') + 1, 2]|max, 6]|min }}" id="rule-{{ i }}-words" name="rule-{{ i }}-words" placeholder="one per line"
+                                  aria-label="Rule {{ n }}: words, one per line" autocapitalize="none" spellcheck="false"{{ bad(whole, 'err-rule-' ~ i) }}>{{ rule.words }}</textarea>
+                    </span>
+                    {% endif %}
+
+                    {% if signal.voted %}
+                    <label for="rule-{{ i }}-min_votes">with at least</label>
+                    <input class="field-inline w-20" type="number" min="0" inputmode="numeric" id="rule-{{ i }}-min_votes" name="rule-{{ i }}-min_votes" value="{{ rule.min_votes }}" placeholder="{{ default_votes }}"{{ bad(e.min_votes, 'err-rule-' ~ i) }}>
+                    <span>votes,</span>
+                    {% else %}
+                    <span>then</span>
+                    {% endif %}
+                    <select class="field-inline" id="rule-{{ i }}-on_hit" name="rule-{{ i }}-on_hit" aria-label="Rule {{ n }}: what happens"
+                            {% if kind == 'severity' %}hx-post="/policy/edit" hx-trigger="change" hx-swap="outerHTML"{% endif %}{{ bad(e.on_hit, 'err-rule-' ~ i) }}>
+                        {% for value, label in on_hit %}<option value="{{ value }}" {% if rule.on_hit == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+                    </select>
+                </div>
+
+                {% if signal.voted %}
+                <div class="sentence text-sm mt-3">
+                    <label for="rule-{{ i }}-split">Also when at least</label>
+                    <input class="field-inline w-20" type="number" min="1" max="100" step="any" inputmode="decimal" id="rule-{{ i }}-split" name="rule-{{ i }}-split" value="{{ rule.split }}" placeholder="off"{{ bad(e.split, 'err-rule-' ~ i) }}>
+                    <span>% of the votes say so, whatever the label reads.</span>
+                </div>
+                {% endif %}
+                {% if signal.types|length > 1 %}
+                <fieldset class="plain-fieldset sentence text-sm mt-3"{{ bad(e.types, 'err-rule-' ~ i) }}>
+                    <legend class="float-left mr-2 py-2">Only for</legend>
+                    {% for t in signal.types %}
+                    <label class="check" for="rule-{{ i }}-types-{{ t }}">
+                        <input type="checkbox" id="rule-{{ i }}-types-{{ t }}" name="rule-{{ i }}-types" value="{{ t }}" {% if t in rule.types %}checked{% endif %}>
+                        <span>{{ t }}</span>
+                    </label>
+                    {% endfor %}
+                    <span class="text-muted">(none ticked: all of them)</span>
+                </fieldset>
+                {% endif %}
+                {% set rest = [] %}
+                {% for field, message in e.items() if field != 'id' %}{% set _ = rest.append(message) %}{% endfor %}
+                {{ error(rest|join('; '), 'err-rule-' ~ i) }}
+            </li>
+            {% endfor %}
+        </ol>
+        {% if not ro %}
+        <button class="btn btn-secondary btn-lg mt-3" id="add-rule" name="op" value="add-rule"{{ af('add-rule') }} formaction="/policy/edit" hx-post="/policy/edit" hx-swap="outerHTML">Add a rule</button>
+        {% endif %}
+    </section>
+
+    <section aria-labelledby="h-lists">
+        <h2 class="setup-title" id="h-lists">Lists</h2>
+        <p class="hint">Named word lists. A rule points at one with &ldquo;the list &hellip;&rdquo;, so a long list is written once.</p>
+        {% if not form.lists %}<p class="card p-4 mt-3 text-muted">No list yet.</p>{% endif %}
+        <div class="grid gap-3 lg:grid-cols-2 mt-3">
+            {% for entry in form.lists %}
+            {% set i = loop.index0 %}
+            <div class="card p-4" id="list-{{ i }}">
+                <div class="flex items-end gap-2">
+                    <div class="grow min-w-0">
+                        <label class="label" for="list-{{ i }}-name">Name</label>
+                        <input class="input font-mono" id="list-{{ i }}-name" name="list-{{ i }}-name" value="{{ entry.name }}" autocapitalize="none" spellcheck="false"{{ af('list-' ~ i ~ '-name') }}{{ bad(entry.error, 'err-list-' ~ i) }}>
+                    </div>
+                    {% if not ro %}
+                    <button class="btn btn-quiet btn-icon mb-1" id="list-{{ i }}-remove" name="op" value="remove-list:{{ i }}" formaction="/policy/edit" hx-post="/policy/edit" hx-swap="outerHTML" aria-label="Remove the list {{ entry.name }}">
+                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+                    </button>
+                    {% endif %}
+                </div>
+                <label class="label mt-3" for="list-{{ i }}-words">Words, one per line</label>
+                <textarea class="input font-mono text-sm" rows="5" id="list-{{ i }}-words" name="list-{{ i }}-words" autocapitalize="none" spellcheck="false"{{ bad(entry.error, 'err-list-' ~ i) }}>{{ entry.words }}</textarea>
+                {{ error(entry.error, 'err-list-' ~ i) }}
+            </div>
+            {% endfor %}
+        </div>
+        {% if not ro %}
+        <button class="btn btn-secondary btn-lg mt-3" id="add-list" name="op" value="add-list"{{ af('add-list') }} formaction="/policy/edit" hx-post="/policy/edit" hx-swap="outerHTML">Add a list</button>
+        {% endif %}
+    </section>
+</fieldset>
+
+<div id="policy-result" class="mt-6" aria-live="polite">
+    {% if invalid %}
+    <div class="notice notice-error" role="alert">
+        <span aria-hidden="true">&#10007;</span>
+        <div><strong>{{ 'Nothing to preview yet.' if previewing else 'Nothing was saved.' }}</strong> {{ invalid }} {{ 'thing needs' if invalid == 1 else 'things need' }} fixing:
+            {% set links = [] %}
+            {% for rule in form.rules %}{% if rule.errors %}{% set _ = links.append(loop.index0) %}{% endif %}{% endfor %}
+            {% for i in links %}<a class="underline font-semibold" href="#rule-{{ i }}">rule {{ i + 1 }}</a>{{ ', ' if not loop.last }}{% endfor %}
+            {% if form.problems %}<ul class="mt-1 list-disc pl-5">{% for line in form.problems %}<li class="break-words">{{ line }}</li>{% endfor %}</ul>{% endif %}
+        </div>
+    </div>
+    {% endif %}
+    {% if impact %}
+    {% set labels = {'approve': 'approved', 'review': 'held for review', 'reject': 'rejected', 'wait': 'waiting for data'} %}
+    {% set tone = {'approve': 'badge-ok', 'review': 'badge-warn', 'reject': 'badge-flag', 'wait': 'badge-unknown'} %}
+    <section class="card p-4" aria-labelledby="h-preview">
+        <h2 class="setup-title" id="h-preview">Preview: this policy over the last {{ impact.compared }} decided {{ 'item' if impact.compared == 1 else 'items' }}</h2>
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-3">
+            {% for outcome in outcomes %}
+            <div class="stat"><div class="stat-number">{{ impact.counts[outcome] }}</div><div class="text-sm text-muted">{{ labels[outcome] }}</div></div>
+            {% endfor %}
+        </div>
+        <p class="hint mt-3">Each item is decided again from what it stored when it was first decided; nothing is fetched and nothing is changed.
+            {% if impact.not_comparable %}{{ impact.not_comparable }} of the last {{ preview_limit }} stored {{ 'item has' if impact.not_comparable == 1 else 'items have' }} nothing stored to decide from and {{ 'is' if impact.not_comparable == 1 else 'are' }} left out.{% endif %}</p>
+        {% if impact.changed %}
+        <h3 class="font-semibold mt-4">{{ impact.changed|length }} would be decided differently</h3>
+        <ul class="mt-1 divide-y divide-line">
+            {% for row in impact.changed %}
+            <li class="py-2.5">
+                <div class="flex flex-wrap items-center gap-2">
+                    <a class="font-semibold underline" href="/item/{{ row.item_id }}?from=policy">{{ row.title or 'Untitled' }}</a>
+                    <span class="badge {{ tone[row.before] }}">{{ labels[row.before] }}</span>
+                    <span aria-hidden="true">&rarr;</span><span class="sr-only">becomes</span>
+                    <span class="badge {{ tone[row.after] }}">{{ labels[row.after] }}</span>
+                </div>
+                {% if row.reasons %}<p class="text-sm text-muted mt-0.5">{{ row.reasons|join('; ') }}</p>{% endif %}
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p class="mt-4 font-semibold">No stored item would be decided differently.</p>
+        {% endif %}
+    </section>
+    {% endif %}
+</div>
+
+{# Preview writes nothing, so it stays when the file is managed: it shows what the policy as written decides. #}
+<div class="action-bar">
+    <span class="text-sm text-muted mr-auto">{{ 'The policy as the file has it.' if ro else 'Nothing changes until you save.' }}</span>
+    <button class="btn btn-secondary btn-lg" name="op" value="preview" formaction="/policy/preview" hx-post="/policy/preview">Preview impact</button>
+    {% if not ro %}<button class="btn btn-primary btn-lg" name="op" value="save">Save</button>{% endif %}
+</div>
+</form>
+</div>

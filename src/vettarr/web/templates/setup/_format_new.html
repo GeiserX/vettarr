@@ -1,0 +1,24 @@
+{# Add a format. Needs `new_format` (key, kind), `format_error`, `state`. #}
+<div id="format-new">
+{% if state.writable %}
+<form class="card p-4" method="post" action="/setup/formats" hx-post="/setup/formats" hx-target="#format-new" hx-swap="outerHTML" novalidate>
+    <h3 class="font-semibold">Add a format</h3>
+    <div class="grid gap-3 sm:grid-cols-2 mt-3">
+        <div>
+            <label class="label" for="format-new-key">Key</label>
+            <input class="input font-mono" id="format-new-key" name="key" value="{{ new_format.key }}" placeholder="my-cards" autocapitalize="none" spellcheck="false"
+                   {% if format_error %}aria-invalid="true" aria-describedby="format-new-error"{% endif %}>
+        </div>
+        <div>
+            <label class="label" for="format-new-kind">Kind</label>
+            <select class="input" id="format-new-kind" name="kind">
+                <option value="card" {% if new_format.kind == 'card' %}selected{% endif %}>card: labelled lines</option>
+                <option value="scene" {% if new_format.kind == 'scene' %}selected{% endif %}>scene: a release name on the first line</option>
+            </select>
+        </div>
+    </div>
+    {% if format_error %}<p class="field-error" id="format-new-error" role="alert"><span aria-hidden="true">&#10007;</span><span>{{ format_error }}</span></p>{% endif %}
+    <button class="btn btn-secondary btn-lg mt-3">Add the format</button>
+</form>
+{% endif %}
+</div>

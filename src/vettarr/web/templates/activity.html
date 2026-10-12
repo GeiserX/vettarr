@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}Activity · vettarr{% endblock %}
+{% block content %}
+{% set tab = 'activity' %}{% include "_stats_tabs.html" %}
+<p class="text-sm text-muted mb-4">
+    Everything the policy, the providers and the delivery did, newest first. A decision that only repeats the one before it is left out.
+    {% if needs_you %}
+    <a class="link" href="{{ waiting_link }}">{{ needs_you }} item{{ ' needs' if needs_you == 1 else 's need' }} you</a>.
+    {% else %}
+    Nothing is waiting for you.
+    {% endif %}
+</p>
+
+{# A change applies at once, as on the Inbox, and only the log is replaced. Without the script, Apply sends the form. #}
+<form class="card log-filters mb-4" method="get" action="/activity"
+      hx-get="/activity" hx-trigger="change, submit" hx-target="#activity-log" hx-select="#activity-log"
+      hx-select-oob="#activity-count:innerHTML" hx-swap="outerHTML" hx-push-url="true" hx-sync="this:replace"
+      aria-label="Filter the log">
+    <div>
+        <label class="label" for="f-kind">Kind</label>
+        <select class="input" id="f-kind" name="kind">
+            <option value="">Every kind</option>
+            {% for key, label in kinds %}
+            <option value="{{ key }}" {% if kind == key %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div>
+        <label class="label" for="f-item">Item</label>
+        <input class="input" id="f-item" name="item" type="search" value="{{ item }}" maxlength="200"
+               placeholder="A title or an item number" autocomplete="off">
+    </div>
+    <div>
+        <label class="label" for="f-since">Time</label>
+        <select class="input" id="f-since" name="since">
+            {% for key, label in sinces %}
+            <option value="{{ key }}" {% if since == key %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <label class="check">
+        <input type="checkbox" name="waiting" value="1" {% if waiting %}checked{% endif %}>
+        <span>Only items still waiting for you</span>
+    </label>
+    <div class="log-filters-actions">
+        <noscript><button class="btn btn-primary btn-lg">Apply</button></noscript>
+        <a class="btn btn-secondary btn-lg" href="/activity">Clear</a>
+    </div>
+</form>
+
+{# Outside the part a filter replaces and filled in place, so a screen reader says the new count. #}
+<p class="text-sm text-muted mb-2" id="activity-count" role="status">
+    {{- total }} event{{ '' if total == 1 else 's' }}{% if filtered %} match{{ 'es' if total == 1 else '' }} the filters{% endif %}{% if pages > 1 %}, page {{ page }} of {{ pages }}{% endif %}.
+</p>
+<div id="activity-log">
+    {% if rows %}
+    <ol class="card log">
+        {% for row in rows %}
+        <li class="log-row">
+            <time class="log-time" datetime="{{ row.iso }}">{{ row.when }}</time>
+            <span class="badge {{ row.badge }}">{{ row.label }}</span>
+            <div class="log-what">
+                {% if row.item_id %}
+                <a class="link font-semibold" href="/item/{{ row.item_id }}?from=activity">{{ row.title or 'Item ' ~ row.item_id }}</a>
+                {% elif row.title %}
+                <span class="font-semibold">{{ row.title }}</span> <span class="text-muted">(the item is gone)</span>
+                {% endif %}
+                <span>{{ row.text }}</span>
+                {% if row.fix %}<a class="link" href="{{ row.fix }}">Open its card in Setup</a>{% endif %}
+            </div>
+        </li>
+        {% endfor %}
+    </ol>
+    {% else %}
+    <div class="card p-6 text-muted">
+        {% if filtered %}No event matches the filters. <a class="link" href="/activity">Clear them</a>.
+        {% else %}Nothing has happened yet. The first post a source reads shows up here.{% endif %}
+    </div>
+    {% endif %}
+    {% if pages > 1 %}
+    <nav class="pager" aria-label="Pages of the log">
+        {% if previous %}<a class="btn btn-secondary btn-lg" href="{{ previous }}" rel="prev">Newer</a>{% else %}<span></span>{% endif %}
+        <span class="text-sm text-muted">Page {{ page }} of {{ pages }}</span>
+        {% if next %}<a class="btn btn-secondary btn-lg" href="{{ next }}" rel="next">Older</a>{% else %}<span></span>{% endif %}
+    </nav>
+    {% endif %}
+</div>
+{% endblock %}

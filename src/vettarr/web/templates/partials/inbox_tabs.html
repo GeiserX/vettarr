@@ -1,0 +1,5 @@
+<nav id="inbox-tabs" class="tabs" aria-label="Queues" {% if oob %}hx-swap-oob="true"{% endif %}>
+    {% for t in tabs %}
+    <a class="tab" href="/?{{ filters.query(tab=t.key) }}" {% if t.key == tab.key %}aria-current="page"{% endif %}>{{ t.label }} <span class="tab-count">{{ counts[t.key] }}</span></a>
+    {% endfor %}
+</nav>

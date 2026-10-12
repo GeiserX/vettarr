@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% import "partials/bits.html" as bits %}
+{% block title %}Review · vettarr{% endblock %}
+{% block content %}
+<h1 class="page-title mb-3 review-heading">Review</h1>
+{% include "partials/review_card.html" %}
+
+{# The legend. The keys work anywhere on the page except in a field or an open dialog. #}
+<details class="keys" open>
+    <summary data-key="?">Keys</summary>
+    <dl>
+        {% for key, what in keys %}<div><dt><kbd class="kbd">{{ key|upper }}</kbd></dt><dd>{{ what }}</dd></div>{% endfor %}
+    </dl>
+</details>
+<p class="swipe-hint">Swipe left for the next item, right for the previous one.</p>
+
+{{ bits.drawer() }}
+{% endblock %}

@@ -1,0 +1,18 @@
+{# The download's state. It carries hx-trigger only while the item is
+   downloading, so the answer that says anything else is the one that ends the
+   polling (and announces over-<id>, so the panel reads the item again).
+   Emptying the drawer ends it too. A failed download says why and what helps,
+   with no empty bar. #}
+<div id="download" class="download"
+     {% if card and card.downloading %}hx-get="/item/{{ card.id }}/progress" hx-trigger="every 5s" hx-swap="outerHTML"{% endif %}>
+    {% if card and card.download %}
+    {% if card.download.status.value == 'error' %}
+    <p class="notice notice-error"><span aria-hidden="true">&#10007;</span>
+        <span><strong>Not downloading.</strong> {{ card.failed or 'The download client did not take it.' }}
+        {% if card.can_grab %}Grab another release, or check{% else %}Check{% endif %} the download client under <a class="underline font-semibold" href="/setup#integrations">Integrations in Setup</a>.</span></p>
+    {% else %}
+    <p class="text-sm"><strong>{{ card.download.status.value|capitalize }}</strong> · {{ card.progress }}%{% if card.download.category %} · category {{ card.download.category }}{% endif %}</p>
+    <progress class="progress" value="{{ card.progress }}" max="100" aria-label="Download progress">{{ card.progress }}%</progress>
+    {% endif %}
+    {% endif %}
+</div>

@@ -1,0 +1,171 @@
+{% import "partials/bits.html" as bits %}
+{# The whole item. The same panel is the /item/<id> page and the Inbox's
+   slide-over; every action in it is answered with this panel again. #}
+{% set card = d.card %}
+{% set item = card.item %}
+{# over-<id> is announced by the download poll's last answer: the header's
+   badge and the buttons then read the item again. #}
+<article id="item-panel" class="panel" data-id="{{ card.id }}"
+         hx-get="/item/{{ card.id }}" hx-trigger="over-{{ card.id }} from:body" hx-swap="outerHTML">
+    <header class="panel-head">
+        {{ bits.poster(card, "panel-poster") }}
+        <div class="min-w-0">
+            <h1 class="panel-title">{{ card.title }}{% if item.year %} <span class="text-muted font-normal">({{ item.year }})</span>{% endif %}</h1>
+            <p class="row-meta">{{ bits.meta(card) }}</p>
+            <p class="row-verdict">{{ bits.chips(card) }}</p>
+            {% if card.check and (card.check.tmdb_id or card.check.imdb_id) %}
+            <p class="text-sm mt-2">
+                {% if card.check.tmdb_id %}<a class="link" href="https://www.themoviedb.org/{{ 'tv' if card.media_type == 'series' else 'movie' }}/{{ card.check.tmdb_id }}" target="_blank" rel="noopener noreferrer">TMDB<span class="sr-only"> (opens in a new tab)</span></a>{% endif %}
+                {% if card.check.tmdb_id and card.check.imdb_id %}<span class="text-muted" aria-hidden="true">·</span>{% endif %}
+                {% if card.check.imdb_id %}<a class="link" href="https://www.imdb.com/title/{{ card.check.imdb_id }}/parentalguide" target="_blank" rel="noopener noreferrer">IMDb parents guide<span class="sr-only"> (opens in a new tab)</span></a>{% endif %}
+            </p>
+            {% endif %}
+        </div>
+    </header>
+
+    <div class="panel-actions">
+        {% if card.can_approve %}
+        <button class="btn btn-primary btn-lg" hx-post="/item/{{ card.id }}/approve" hx-target="#item-panel" hx-swap="outerHTML" hx-disabled-elt="#item-panel button">{{ card.approve_label }}</button>
+        {% endif %}
+        {{ bits.teach(card, "btn btn-secondary btn-lg") }}
+        {% if card.can_reject %}
+        <button class="btn btn-danger-outline btn-lg" hx-post="/item/{{ card.id }}/reject" hx-target="#item-panel" hx-swap="outerHTML" hx-disabled-elt="#item-panel button"
+                data-confirm-title="{{ card.reject_label }} {{ card.title }}?" data-confirm="{{ card.reject_confirm }}" data-confirm-action="{{ card.reject_label }}">{{ card.reject_label }}</button>
+        {% endif %}
+        {% if card.can_search %}
+        <button class="btn btn-secondary btn-lg" hx-post="/item/{{ card.id }}/search" hx-target="#item-panel" hx-swap="outerHTML" hx-disabled-elt="#item-panel button">Search</button>
+        {% endif %}
+        {% if card.can_rerun %}
+        <button class="btn btn-secondary btn-lg" hx-post="/item/{{ card.id }}/rerun" hx-target="#item-panel" hx-swap="outerHTML" hx-disabled-elt="#item-panel button"
+                aria-describedby="rerun-says">Rerun policy</button>
+        {% endif %}
+    </div>
+    {% if card.final %}<p class="text-sm text-muted">{{ card.final }}</p>{% endif %}
+    {% if card.can_rerun %}
+    <p id="rerun-says" class="text-sm text-muted">Rerun policy asks TMDB and the parents guide again and decides the item under the policy as it is now. If the lookup finds nothing, the item is left as it is.</p>
+    {% endif %}
+
+    <section class="card panel-section" aria-labelledby="verdict-title">
+        <h2 id="verdict-title" class="section-title">Verdict</h2>
+        {% if card.verdict %}
+        <p><span class="badge badge-{{ card.verdict[1] }}">{{ card.verdict[0] }}</span>
+            <span class="text-sm text-muted">{% if d.decided %}decided {{ d.decided }}{% endif %}{% if item.policy_version %} · policy {{ item.policy_version }}{% endif %}</span></p>
+        {% else %}
+        <p class="text-muted">The policy has not decided this item.</p>
+        {% endif %}
+        {% if card.reasons %}
+        <ul class="reasons">
+            {% for line in card.reasons %}<li>{{ bits.reason(line) }}</li>{% endfor %}
+        </ul>
+        {% endif %}
+        {% if card.failed %}<p class="notice notice-error mt-3">{{ card.failed }}</p>{% endif %}
+        {% if d.delivery %}<p class="text-sm mt-3"><strong>Delivery:</strong> {{ d.delivery }}</p>{% endif %}
+        {% if d.read %}
+        <details class="search mt-3">
+            <summary>What the policy read ({{ d.read|length }} signals)</summary>
+            <dl class="facts facts-wide">
+                {% for name, said in d.read %}<div><dt title="{{ name }}">{{ name|signal_label }}</dt><dd>{{ said }}</dd></div>{% endfor %}
+            </dl>
+        </details>
+        {% endif %}
+        {% if card.direct_add %}
+        <p class="notice notice-warn mt-3">Approving downloads the {{ card.direct_add }} this post carries, as it is. Nothing is searched, and the title is the name its sender gave it.</p>
+        {% endif %}
+    </section>
+
+    {% if d.guide %}
+    <section class="card panel-section" aria-labelledby="guide-title">
+        <h2 id="guide-title" class="section-title">Parents guide votes</h2>
+        <div class="guide">
+            {% for bar in d.guide %}
+            <div class="guide-row">
+                <p class="guide-head">
+                    <span class="pill pill-{{ bar.severity or 'unknown' }}">{{ bar.label }}: {{ bar.severity or 'no rating' }}</span>
+                    {% if bar.votes is not none %}<span class="text-sm text-muted">{{ bar.votes }} vote{{ '' if bar.votes == 1 else 's' }}</span>{% endif %}
+                </p>
+                {% if bar.segments %}
+                <div class="bar" role="img" aria-label="{{ bar.spoken }}">
+                    {% for name, count, percent in bar.segments %}{% if count %}<span class="sev-{{ name }}" style="width: {{ percent }}%"></span>{% endif %}{% endfor %}
+                </div>
+                <ul class="bar-legend">
+                    {% for name, count, percent in bar.segments %}<li><span class="swatch sev-{{ name }}" aria-hidden="true"></span>{{ name }} {{ count }}</li>{% endfor %}
+                </ul>
+                {% elif bar.note %}
+                <p class="text-sm text-muted">{{ bar.note }}</p>
+                {% else %}
+                <p class="text-sm text-muted">No vote breakdown is stored for this item.</p>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+    </section>
+    {% endif %}
+
+    {% if card.check %}
+    <section class="card panel-section" aria-labelledby="about-title">
+        <h2 id="about-title" class="section-title">About the title</h2>
+        {% if card.check.plot %}<p class="text-sm">{{ card.check.plot }}</p>{% endif %}
+        <dl class="facts">
+            <div><dt>Certification</dt>
+                <dd>{% for country, rating in d.certifications %}<span class="tag">{{ country }} {{ rating }}</span> {% else %}<span class="text-muted">none stored</span>{% endfor %}</dd></div>
+            {% if card.check.genres %}<div><dt>Genres</dt><dd>{{ card.check.genres|join(', ') }}</dd></div>{% endif %}
+            {% if card.check.keywords %}<div><dt>Keywords</dt><dd>{{ card.check.keywords|join(', ') }}</dd></div>{% endif %}
+        </dl>
+    </section>
+    {% endif %}
+
+    <section class="card panel-section" aria-labelledby="releases-title">
+        <h2 id="releases-title" class="section-title">Releases</h2>
+        {% for search in d.searches %}
+        {% set releases = search.prowlarr_results or [] %}
+        <details class="search" {% if loop.first %}open{% endif %}>
+            <summary>{{ 'Latest search' if loop.first else 'Earlier search' }} · {{ search.result_count or 0 }} found, {{ releases|length }} stored</summary>
+            {% if releases %}
+            <ol class="releases">
+                {% for r in releases %}
+                <li>
+                    <div class="min-w-0">
+                        <p class="release-title">{{ r.title }}</p>
+                        <p class="text-sm text-muted">{{ r.size|size_fmt }} · {{ r.seeders or 0 }} seeders{% if r.indexer %} · {{ r.indexer }}{% endif %}</p>
+                    </div>
+                    {% if card.can_grab %}
+                    <button class="btn btn-primary" hx-post="/item/{{ card.id }}/download/{{ search.id }}/{{ loop.index0 }}" hx-target="#item-panel" hx-swap="outerHTML" hx-disabled-elt="#item-panel button"
+                            aria-label="Grab {{ r.title }}">Grab</button>
+                    {% endif %}
+                </li>
+                {% endfor %}
+            </ol>
+            {% else %}
+            <p class="text-sm text-muted">This search found nothing.</p>
+            {% endif %}
+        </details>
+        {% else %}
+        <p class="text-sm text-muted">Not searched yet.{% if card.can_search %} Search lists what the providers have.{% endif %}</p>
+        {% endfor %}
+    </section>
+
+    {% if card.download %}
+    <section class="card panel-section" aria-labelledby="download-title">
+        <h2 id="download-title" class="section-title">Download</h2>
+        {% include "partials/download.html" %}
+    </section>
+    {% endif %}
+
+    <section class="card panel-section" aria-labelledby="post-title">
+        <h2 id="post-title" class="section-title">The post</h2>
+        <p class="text-sm text-muted">{% if item.source_key %}From {{ item.source_key }}{% endif %}{% if d.post_link %} · <a class="link" href="{{ d.post_link }}" target="_blank" rel="noopener noreferrer">Open the post in Telegram<span class="sr-only"> (opens in a new tab)</span></a>{% endif %}</p>
+        <pre class="post-text">{{ item.raw_text }}</pre>
+        {% if d.links %}
+        <ul class="text-sm mt-2">
+            {% for link in d.links %}<li><a class="link break-all" href="{{ link }}" target="_blank" rel="noopener noreferrer">{{ link }}<span class="sr-only"> (opens in a new tab)</span></a></li>{% endfor %}
+        </ul>
+        {% endif %}
+    </section>
+
+    <section class="card panel-section" aria-labelledby="history-title">
+        <h2 id="history-title" class="section-title">History</h2>
+        <ol class="history">
+            {% for moment in d.history %}<li><time datetime="{{ moment.at.isoformat() }}">{{ moment.when }}</time><span>{{ moment.text }}</span></li>{% endfor %}
+        </ol>
+    </section>
+</article>

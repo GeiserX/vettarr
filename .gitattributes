@@ -1,0 +1,8 @@
+# What `git archive` leaves out: the issue tracker's and the agents' plumbing.
+# The public copy is built from an archive, so none of it reaches it.
+.beads/ export-ignore
+.beads/** export-ignore
+.claude/ export-ignore
+.claude/** export-ignore
+CLAUDE.md export-ignore
+AGENTS.md export-ignore

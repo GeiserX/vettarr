@@ -1,0 +1,10 @@
+{# The heading Stats and Activity share: the page's name and the way to the other one. #}
+<div class="flex flex-wrap items-center justify-between gap-3 mb-2">
+    <h1 class="page-title">{{ 'Stats' if tab == 'stats' else 'Activity' }}</h1>
+    <nav aria-label="Stats and activity">
+        <ul class="tabs">
+            <li><a class="tab" href="/stats" {% if tab == 'stats' %}aria-current="page"{% endif %}>Stats</a></li>
+            <li><a class="tab" href="/activity" {% if tab == 'activity' %}aria-current="page"{% endif %}>Activity</a></li>
+        </ul>
+    </nav>
+</div>

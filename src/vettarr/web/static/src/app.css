@@ -1,0 +1,1650 @@
+/* The stylesheet's source. scripts/build-css.sh compiles it to static/app.css
+   with the Tailwind standalone CLI; the Dockerfile's builder stage runs the
+   same script. Never edit static/app.css.
+
+   Colours are the tokens below, one set for light and one for dark. Pages use
+   them through utilities (bg-surface, text-muted, border-line, text-accent,
+   ...) and through the components at the end. Type and spacing are Tailwind's
+   scale: text-sm for dense rows, text-base for prose, a 4 px spacing unit. */
+
+@import "tailwindcss";
+@import "./forms.css";
+@source "../../templates";
+@source "../../routes";
+@source "../app.js";
+
+/* `dark:` follows the same rule as the tokens: the stored choice when there
+   is one, otherwise the system's. */
+@custom-variant dark {
+  &:where([data-theme="dark"], [data-theme="dark"] *) {
+    @slot;
+  }
+  @media (prefers-color-scheme: dark) {
+    &:where(:root:not([data-theme="light"]), :root:not([data-theme="light"]) *) {
+      @slot;
+    }
+  }
+}
+
+/* --- tokens ---------------------------------------------------------------
+   The two dark blocks must stay the same: one answers the system setting, the
+   other the toggle (data-theme on <html>, kept in localStorage). A test
+   compares them. */
+
+:root {
+  color-scheme: light;
+  --bg: #f5f6f8;
+  --surface: #ffffff;
+  --surface-2: #eceef2;
+  --line: #d5dae1;
+  --text: #15181d;
+  --muted: #566070;
+  --accent: #1d4ed8;
+  --accent-hover: #1e40af;
+  --on-accent: #ffffff;
+  --focus: #1d4ed8;
+  --ok: #166534;
+  --ok-bg: #dcfce7;
+  --warn: #854d0e;
+  --warn-bg: #fef3c7;
+  --danger: #b91c1c;
+  --danger-hover: #991b1b;
+  --danger-bg: #fee2e2;
+  --sev-none: #166534;
+  --sev-none-bg: #dcfce7;
+  --sev-mild: #4d5b0b;
+  --sev-mild-bg: #ecf5c0;
+  --sev-moderate: #9a3412;
+  --sev-moderate-bg: #ffedd5;
+  --sev-severe: #991b1b;
+  --sev-severe-bg: #fee2e2;
+  /* The guide's bars: lighter to darker, yellow to red, so mild, moderate and
+     severe stay apart with a colour vision deficiency too. */
+  --bar-none: #16a34a;
+  --bar-mild: #d4a51c;
+  --bar-moderate: #c2410c;
+  --bar-severe: #7f1d1d;
+  --shadow: 0 1px 2px rgb(15 23 42 / 0.08), 0 8px 24px rgb(15 23 42 / 0.08);
+  /* The four outcomes in a chart, in stacking order. Told apart with a colour
+     vision deficiency too (each pair that touches is 8 or more apart), and
+     every chart that uses them has a legend in words and a table. */
+  --chart-approve: #15936a;
+  --chart-review: #b07800;
+  --chart-wait: #2a78d6;
+  --chart-reject: #e34948;
+  --gray-50: #030712;
+  --gray-100: #111827;
+  --gray-200: #1f2937;
+  --gray-300: #374151;
+  --gray-400: #4b5563;
+  --gray-500: #566070;
+  --gray-600: #5a6474;
+  --gray-700: #d1d5db;
+  --gray-800: #e5e7eb;
+  --gray-900: #f3f4f6;
+  --gray-950: #f9fafb;
+  --blue-300: #1e40af;
+  --blue-400: #1d4ed8;
+  --green-300: #166534;
+  --green-400: #15803d;
+  --green-900: #bbf7d0;
+  --red-300: #991b1b;
+  --red-400: #b91c1c;
+  --red-900: #fecaca;
+  --yellow-400: #854d0e;
+  --orange-400: #c2410c;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0f1318;
+    --surface: #161b21;
+    --surface-2: #1f262e;
+    --line: #2d3743;
+    --text: #e4e9f0;
+    --muted: #9aa7b8;
+    --accent: #7aaeff;
+    --accent-hover: #a3c6ff;
+    --on-accent: #0b1220;
+    --focus: #9cc2ff;
+    --ok: #86efac;
+    --ok-bg: #123a22;
+    --warn: #fcd34d;
+    --warn-bg: #3d2f0a;
+    --danger: #fca5a5;
+    --danger-hover: #fecaca;
+    --danger-bg: #4a1717;
+    --sev-none: #86efac;
+    --sev-none-bg: #123a22;
+    --sev-mild: #d9e86a;
+    --sev-mild-bg: #2f3a0c;
+    --sev-moderate: #fdba74;
+    --sev-moderate-bg: #4a2508;
+    --sev-severe: #fca5a5;
+    --sev-severe-bg: #4a1717;
+    --bar-none: var(--sev-none);
+    --bar-mild: var(--sev-mild);
+    --bar-moderate: var(--sev-moderate);
+    --bar-severe: var(--sev-severe);
+    --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px rgb(0 0 0 / 0.45);
+    --chart-approve: #199e70;
+    --chart-review: #c98500;
+    --chart-wait: #3987e5;
+    --chart-reject: #e66767;
+    --gray-50: #f9fafb;
+    --gray-100: #f3f4f6;
+    --gray-200: #e5e7eb;
+    --gray-300: #d1d5db;
+    --gray-400: #9ca3af;
+    --gray-500: #9aa7b8;
+    --gray-600: #8d9aab;
+    --gray-700: #374151;
+    --gray-800: #1f2937;
+    --gray-900: #111827;
+    --gray-950: #030712;
+    --blue-300: #93c5fd;
+    --blue-400: #60a5fa;
+    --green-300: #86efac;
+    --green-400: #4ade80;
+    --green-900: #14532d;
+    --red-300: #fca5a5;
+    --red-400: #f87171;
+    --red-900: #7f1d1d;
+    --yellow-400: #facc15;
+    --orange-400: #fb923c;
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0f1318;
+  --surface: #161b21;
+  --surface-2: #1f262e;
+  --line: #2d3743;
+  --text: #e4e9f0;
+  --muted: #9aa7b8;
+  --accent: #7aaeff;
+  --accent-hover: #a3c6ff;
+  --on-accent: #0b1220;
+  --focus: #9cc2ff;
+  --ok: #86efac;
+  --ok-bg: #123a22;
+  --warn: #fcd34d;
+  --warn-bg: #3d2f0a;
+  --danger: #fca5a5;
+  --danger-hover: #fecaca;
+  --danger-bg: #4a1717;
+  --sev-none: #86efac;
+  --sev-none-bg: #123a22;
+  --sev-mild: #d9e86a;
+  --sev-mild-bg: #2f3a0c;
+  --sev-moderate: #fdba74;
+  --sev-moderate-bg: #4a2508;
+  --sev-severe: #fca5a5;
+  --sev-severe-bg: #4a1717;
+  --bar-none: var(--sev-none);
+  --bar-mild: var(--sev-mild);
+  --bar-moderate: var(--sev-moderate);
+  --bar-severe: var(--sev-severe);
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px rgb(0 0 0 / 0.45);
+  --chart-approve: #199e70;
+  --chart-review: #c98500;
+  --chart-wait: #3987e5;
+  --chart-reject: #e66767;
+  --gray-50: #f9fafb;
+  --gray-100: #f3f4f6;
+  --gray-200: #e5e7eb;
+  --gray-300: #d1d5db;
+  --gray-400: #9ca3af;
+  --gray-500: #9aa7b8;
+  --gray-600: #8d9aab;
+  --gray-700: #374151;
+  --gray-800: #1f2937;
+  --gray-900: #111827;
+  --gray-950: #030712;
+  --blue-300: #93c5fd;
+  --blue-400: #60a5fa;
+  --green-300: #86efac;
+  --green-400: #4ade80;
+  --green-900: #14532d;
+  --red-300: #fca5a5;
+  --red-400: #f87171;
+  --red-900: #7f1d1d;
+  --yellow-400: #facc15;
+  --orange-400: #fb923c;
+}
+
+@theme inline {
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-line: var(--line);
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-on-accent: var(--on-accent);
+  --color-ok: var(--ok);
+  --color-ok-bg: var(--ok-bg);
+  --color-warn: var(--warn);
+  --color-warn-bg: var(--warn-bg);
+  --color-danger: var(--danger);
+  --color-danger-bg: var(--danger-bg);
+
+  /* The pages written before the tokens use Tailwind's gray scale and a few
+     400-level accents as "light text on a dark page". Until each page moves
+     to the tokens, those names follow the theme too. 500 and 600 are only
+     ever text there, so they are set where small text passes AA (4.5:1) on
+     every surface of both themes. Delete this block with the last of them. */
+  --color-gray-50: var(--gray-50);
+  --color-gray-100: var(--gray-100);
+  --color-gray-200: var(--gray-200);
+  --color-gray-300: var(--gray-300);
+  --color-gray-400: var(--gray-400);
+  --color-gray-500: var(--gray-500);
+  --color-gray-600: var(--gray-600);
+  --color-gray-700: var(--gray-700);
+  --color-gray-800: var(--gray-800);
+  --color-gray-900: var(--gray-900);
+  --color-gray-950: var(--gray-950);
+  --color-blue-300: var(--blue-300);
+  --color-blue-400: var(--blue-400);
+  --color-green-300: var(--green-300);
+  --color-green-400: var(--green-400);
+  --color-green-900: var(--green-900);
+  --color-red-300: var(--red-300);
+  --color-red-400: var(--red-400);
+  --color-red-900: var(--red-900);
+  --color-yellow-400: var(--yellow-400);
+  --color-orange-400: var(--orange-400);
+}
+
+@layer base {
+  html {
+    background: var(--bg);
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    min-height: 100dvh;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans);
+    line-height: 1.5;
+  }
+  :focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    ::before,
+    ::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer components {
+  /* --- the mark ---------------------------------------------------------- */
+  .mark {
+    display: inline-flex;
+    align-items: center;
+    color: var(--text);
+  }
+  .mark svg {
+    height: 1.5rem;
+    width: auto;
+  }
+  .mark-tile {
+    fill: var(--accent);
+  }
+  .mark-tick {
+    stroke: var(--on-accent);
+  }
+
+  /* --- layout ------------------------------------------------------------ */
+  /* Off screen until the keyboard reaches it, then over the header: it never
+     moves the page under a pointer. */
+  .skip-link {
+    position: fixed;
+    top: 0.5rem;
+    left: 0.5rem;
+    z-index: 60;
+    padding: 0.5rem 0.75rem;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 0.375rem;
+    color: var(--text);
+    font-size: 0.875rem;
+    font-weight: 600;
+    transform: translateY(-200%);
+  }
+  .skip-link:focus {
+    transform: none;
+  }
+  /* The skip link moves focus to the content, which is not a control. */
+  main:focus {
+    outline: none;
+  }
+  .shell-header {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    min-height: 3.5rem;
+    padding: 0 1rem;
+    background: var(--surface);
+    border-bottom: 1px solid var(--line);
+  }
+  .shell-tools {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-left: auto;
+  }
+  .shell-main {
+    max-width: 80rem;
+    margin: 0 auto;
+    padding: 1.5rem 1rem;
+  }
+  .nav-links {
+    display: flex;
+    gap: 0.25rem;
+  }
+  .nav-link {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.5rem 0.75rem;
+    border-radius: 0.5rem;
+    border-bottom: 2px solid transparent;
+    color: var(--muted);
+    font-size: 0.875rem;
+    font-weight: 500;
+  }
+  .nav-link:hover {
+    color: var(--text);
+    background: var(--surface-2);
+  }
+  /* The current page: colour, weight and a bar, so it is never colour alone. */
+  .nav-link[aria-current="page"] {
+    color: var(--accent);
+    font-weight: 700;
+    border-bottom-color: var(--accent);
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+  }
+  .nav-link svg {
+    display: none;
+    width: 1.375rem;
+    height: 1.375rem;
+  }
+  /* How many items wait for a person, beside Inbox. The slot htmx refills
+     draws no box of its own, so an empty one adds no gap. */
+  .nav-count-slot {
+    display: contents;
+  }
+  .nav-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.25rem;
+    height: 1.25rem;
+    padding: 0 0.375rem;
+    border-radius: 9999px;
+    background: var(--accent);
+    color: var(--on-accent);
+    font-size: 0.6875rem;
+    font-weight: 700;
+    line-height: 1;
+  }
+  @media (max-width: 639.98px) {
+    .nav-links {
+      position: fixed;
+      inset: auto 0 0 0;
+      z-index: 30;
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 0;
+      padding: 0 0.25rem env(safe-area-inset-bottom);
+      background: var(--surface);
+      border-top: 1px solid var(--line);
+    }
+    .nav-link {
+      flex-direction: column;
+      gap: 0.125rem;
+      min-height: 3.5rem;
+      justify-content: center;
+      padding: 0.375rem 0.25rem;
+      border-radius: 0;
+      border-bottom: 0;
+      border-top: 2px solid transparent;
+      font-size: 0.6875rem;
+    }
+    .nav-link[aria-current="page"] {
+      border-top-color: var(--accent);
+    }
+    .nav-link svg {
+      display: block;
+    }
+    .nav-link {
+      position: relative;
+    }
+    .nav-count {
+      position: absolute;
+      top: 0.25rem;
+      left: calc(50% + 0.375rem);
+    }
+    .shell-main {
+      padding: 1rem 0.75rem calc(5rem + env(safe-area-inset-bottom));
+    }
+  }
+
+  /* --- surfaces and text --------------------------------------------------- */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 0.5rem;
+  }
+  .page-title {
+    font-size: 1.5rem;
+    line-height: 2rem;
+    font-weight: 700;
+  }
+
+  /* --- buttons ------------------------------------------------------------- */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.375rem 0.75rem;
+    border: 1px solid transparent;
+    border-radius: 0.375rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.15s, border-color 0.15s;
+  }
+  .btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+  }
+  .btn-primary {
+    background: var(--accent);
+    color: var(--on-accent);
+  }
+  .btn-primary:hover {
+    background: var(--accent-hover);
+  }
+  .btn-danger {
+    background: var(--danger);
+    color: var(--surface);
+  }
+  .btn-danger:hover {
+    background: var(--danger-hover);
+  }
+  .btn-danger-outline {
+    background: transparent;
+    border-color: currentColor;
+    color: var(--danger);
+  }
+  .btn-danger-outline:hover {
+    background: var(--danger-bg);
+  }
+  .btn-secondary {
+    background: var(--surface-2);
+    border-color: var(--line);
+    color: var(--text);
+  }
+  .btn-secondary:hover {
+    border-color: var(--muted);
+  }
+  .btn-quiet {
+    color: var(--muted);
+  }
+  .btn-quiet:hover {
+    color: var(--text);
+    background: var(--surface-2);
+  }
+  .theme-sun { display: none; }
+  :root[data-theme="dark"] .theme-sun { display: block; }
+  :root[data-theme="dark"] .theme-moon { display: none; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .theme-sun { display: block; }
+    :root:not([data-theme="light"]) .theme-moon { display: none; }
+  }
+  .btn-icon {
+    width: 2.25rem;
+    height: 2.25rem;
+    padding: 0;
+  }
+  .btn-lg {
+    min-height: 2.75rem;
+    padding: 0.5rem 1rem;
+    font-size: 1rem;
+  }
+
+  /* --- forms --------------------------------------------------------------- */
+  .label {
+    display: block;
+    margin-bottom: 0.375rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+  }
+  .input {
+    display: block;
+    width: 100%;
+    min-height: 2.75rem;
+    padding: 0.5rem 0.75rem;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 0.375rem;
+    color: var(--text);
+    font-size: 1rem;
+  }
+  .input:focus-visible {
+    border-color: var(--focus);
+  }
+  .check {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 2.75rem;
+    font-size: 0.875rem;
+  }
+  .check input {
+    width: 1.125rem;
+    height: 1.125rem;
+    accent-color: var(--accent);
+  }
+
+  /* --- badges and rating pills ---------------------------------------------- */
+  .badge {
+    display: inline-block;
+    padding: 0.125rem 0.5rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+  .badge-movie { background: #1e3a5f; color: #93c5fd; }
+  .badge-series { background: #3b1f5e; color: #c4b5fd; }
+  .badge-audiobook { background: #1e4035; color: #6ee7b7; }
+  .badge-ebook { background: #4a3728; color: #fbbf24; }
+  .badge-magazine { background: #4a2832; color: #fca5a5; }
+  .badge-comic { background: #3b3b1f; color: #fde68a; }
+  .badge-music { background: #1f3b3b; color: #99f6e4; }
+  .badge-unknown { background: #2d3748; color: #cbd5e1; }
+  .badge-flag { background: var(--danger-bg); color: var(--danger); }
+  .badge-ok { background: var(--ok-bg); color: var(--ok); }
+  .badge-warn { background: var(--warn-bg); color: var(--warn); border: 1px solid currentColor; }
+  /* A rating always carries its word ("Violence: severe"); the colour only repeats it. */
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.125rem 0.5rem;
+    border-radius: 0.375rem;
+    border: 1px solid currentColor;
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+  .pill-none { background: var(--sev-none-bg); color: var(--sev-none); }
+  .pill-mild { background: var(--sev-mild-bg); color: var(--sev-mild); }
+  .pill-moderate { background: var(--sev-moderate-bg); color: var(--sev-moderate); }
+  .pill-severe { background: var(--sev-severe-bg); color: var(--sev-severe); }
+  .pill-unknown { background: var(--surface-2); color: var(--muted); }
+
+  /* --- stats and activity ---------------------------------------------------- */
+  .badge-kind { background: var(--surface-2); color: var(--text); border: 1px solid var(--line); }
+  .link {
+    color: var(--accent);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .link:hover {
+    color: var(--accent-hover);
+  }
+  .stat-tiles {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem;
+  }
+  .stat-tiles > :first-child {
+    grid-column: 1 / -1;
+  }
+  @media (min-width: 640px) {
+    .stat-tiles {
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+    }
+    .stat-tiles > :first-child {
+      grid-column: auto;
+    }
+  }
+  .stat-tile {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+    padding: 0.75rem 1rem;
+  }
+  .stat-label {
+    display: flex;
+    align-items: center;
+    color: var(--muted);
+    font-size: 0.8125rem;
+  }
+  .stat-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    line-height: 1.2;
+  }
+  .num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  /* A chart colour is only ever a mark: a bar, a swatch beside a word. Text
+     keeps the text tokens. */
+  .chart-approve { fill: var(--chart-approve); background: var(--chart-approve); }
+  .chart-review { fill: var(--chart-review); background: var(--chart-review); }
+  .chart-wait { fill: var(--chart-wait); background: var(--chart-wait); }
+  .chart-reject { fill: var(--chart-reject); background: var(--chart-reject); }
+  .chart-swatch {
+    display: inline-block;
+    flex: none;
+    width: 0.625rem;
+    height: 0.625rem;
+    margin-right: 0.375rem;
+    border-radius: 2px;
+  }
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 1rem;
+    margin-bottom: 0.75rem;
+    color: var(--muted);
+    font-size: 0.8125rem;
+  }
+  .legend li {
+    display: inline-flex;
+    align-items: center;
+  }
+  /* The plot is an SVG stretched to the card; the numbers and dates round it
+     are HTML, so they keep their size on a phone. */
+  .chart {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 0.25rem 0.5rem;
+  }
+  .chart-y {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    height: 10rem;
+    color: var(--muted);
+    font-size: 0.75rem;
+    line-height: 1;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  .chart-plot {
+    display: block;
+    width: 100%;
+    height: 10rem;
+  }
+  .chart-grid {
+    stroke: var(--line);
+    stroke-width: 1;
+    vector-effect: non-scaling-stroke;
+  }
+  .chart-plot rect:hover {
+    opacity: 0.8;
+  }
+  .chart-x {
+    grid-column: 2;
+    display: flex;
+    justify-content: space-between;
+    color: var(--muted);
+    font-size: 0.75rem;
+  }
+  .bar-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  .bar-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.75rem;
+    font-size: 0.875rem;
+  }
+  .bar-row > :first-child {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .bar-track,
+  .bar-stack {
+    height: 0.5rem;
+    margin: 0.25rem 0;
+    border-radius: 0.25rem;
+    overflow: hidden;
+  }
+  .bar-track {
+    background: var(--surface-2);
+  }
+  .bar-fill {
+    display: block;
+    height: 100%;
+    border-radius: 0.25rem;
+    background: var(--accent);
+  }
+  .bar-stack {
+    display: flex;
+    gap: 2px;
+  }
+  .bar-stack > span {
+    min-width: 2px;
+  }
+  .stat-rows > li + li {
+    margin-top: 0.75rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--line);
+  }
+  .log-filters {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-areas: "kind since" "item item" "waiting waiting" "actions actions";
+    gap: 0.75rem;
+    align-items: end;
+    padding: 1rem;
+  }
+  .log-filters > :nth-child(1) { grid-area: kind; }
+  .log-filters > :nth-child(2) { grid-area: item; }
+  .log-filters > :nth-child(3) { grid-area: since; }
+  .log-filters > .check { grid-area: waiting; }
+  .log-filters-actions {
+    grid-area: actions;
+    display: flex;
+    gap: 0.5rem;
+  }
+  .log-filters-actions .btn {
+    flex: 1;
+  }
+  @media (min-width: 768px) {
+    .log-filters {
+      grid-template-columns: 12rem minmax(0, 1fr) 12rem;
+      grid-template-areas: "kind item since" "waiting waiting actions";
+    }
+    .log-filters-actions {
+      justify-content: flex-end;
+    }
+    .log-filters-actions .btn {
+      flex: none;
+    }
+  }
+  .log-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 0.25rem 0.75rem;
+    align-items: baseline;
+    padding: 0.625rem 1rem;
+    border-top: 1px solid var(--line);
+  }
+  .log-row:first-child {
+    border-top: 0;
+  }
+  .log-row .badge {
+    justify-self: start;
+  }
+  .log-time {
+    color: var(--muted);
+    font-size: 0.8125rem;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .log-what {
+    grid-column: 1 / -1;
+    min-width: 0;
+    font-size: 0.875rem;
+    overflow-wrap: anywhere;
+  }
+  @media (min-width: 768px) {
+    .log-row {
+      grid-template-columns: 6.5rem 8.5rem minmax(0, 1fr);
+    }
+    .log-what {
+      grid-column: auto;
+    }
+  }
+
+  /* --- banner, toasts, dialog ----------------------------------------------- */
+  .banner {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.25rem 0.75rem;
+    padding: 0.625rem 1rem;
+    background: var(--warn-bg);
+    border-bottom: 1px solid var(--line);
+    color: var(--warn);
+    font-size: 0.875rem;
+  }
+  .banner a {
+    font-weight: 600;
+    text-decoration: underline;
+  }
+  .banner-short {
+    display: none;
+  }
+  .toasts {
+    position: fixed;
+    right: 1rem;
+    bottom: 1rem;
+    z-index: 50;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    width: min(24rem, calc(100vw - 2rem));
+    pointer-events: none;
+  }
+  .toast {
+    display: flex;
+    gap: 0.625rem;
+    align-items: flex-start;
+    padding: 0.75rem 1rem;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-left: 4px solid var(--ok);
+    border-radius: 0.5rem;
+    box-shadow: var(--shadow);
+    font-size: 0.875rem;
+    pointer-events: auto;
+    animation: toast-in 0.18s ease-out;
+  }
+  .toast::before {
+    content: "\2713";
+    font-weight: 700;
+    color: var(--ok);
+  }
+  .toasts .toast:nth-last-child(n + 3) {
+    display: none;
+  }
+  .toast-error {
+    border-left-color: var(--danger);
+  }
+  .toast-error::before {
+    content: "!";
+    color: var(--danger);
+  }
+  /* dry_run (base.html sets the attribute): every toast says so, whatever the action said. */
+  [data-dry-run] .toast::after {
+    content: "dry run";
+    margin-left: auto;
+    flex: none;
+    padding: 0.125rem 0.5rem;
+    border: 1px solid currentColor;
+    border-radius: 9999px;
+    background: var(--warn-bg);
+    color: var(--warn);
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+  @keyframes toast-in {
+    from {
+      opacity: 0;
+      transform: translateY(0.5rem);
+    }
+  }
+  @media (max-width: 639.98px) {
+    .toasts {
+      right: 0.75rem;
+      bottom: calc(4.25rem + env(safe-area-inset-bottom));
+      width: calc(100vw - 1.5rem);
+    }
+  }
+  .confirm {
+    width: min(28rem, calc(100vw - 2rem));
+    margin: auto;
+    padding: 1.25rem;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 0.75rem;
+    box-shadow: var(--shadow);
+    color: var(--text);
+  }
+  .confirm::backdrop {
+    background: rgb(0 0 0 / 0.55);
+  }
+  .confirm h2 {
+    font-size: 1.125rem;
+    font-weight: 700;
+  }
+  .confirm p {
+    margin-top: 0.5rem;
+    color: var(--muted);
+    font-size: 0.9375rem;
+  }
+  .confirm-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    margin-top: 1.25rem;
+  }
+  @media (max-width: 639.98px) {
+    .confirm-actions {
+      flex-direction: column-reverse;
+    }
+    .confirm-actions .btn {
+      min-height: 2.75rem;
+    }
+  }
+
+  /* --- the login page -------------------------------------------------------- */
+  .login {
+    display: grid;
+    place-items: center;
+    min-height: 100dvh;
+    padding: 1.5rem 1rem;
+  }
+  .login-card {
+    width: min(24rem, 100%);
+    padding: 2rem 1.5rem;
+  }
+  .login-card .mark svg {
+    height: 2rem;
+  }
+  .notice {
+    display: flex;
+    gap: 0.5rem;
+    padding: 0.75rem;
+    border: 1px solid currentColor;
+    border-radius: 0.375rem;
+    font-size: 0.875rem;
+  }
+  .notice-error {
+    background: var(--danger-bg);
+    color: var(--danger);
+  }
+  .notice-warn {
+    background: var(--warn-bg);
+    color: var(--warn);
+  }
+
+  .htmx-indicator {
+    opacity: 0;
+    transition: opacity 200ms ease-in;
+  }
+  .htmx-request .htmx-indicator,
+  .htmx-request.htmx-indicator {
+    opacity: 1;
+  }
+}
+
+/* --- Inbox, Review and the item panel -----------------------------------------
+   One block, so the three pages change together. Under 640 px a row stacks,
+   the slide-over fills the screen and Review's actions sit in a bar above the
+   bottom nav. */
+@layer components {
+  .badge-muted { background: var(--surface-2); color: var(--muted); border: 1px solid var(--line); }
+  .link {
+    color: var(--accent);
+    font-weight: 500;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .link:hover { color: var(--accent-hover); }
+  .tag {
+    display: inline-block;
+    padding: 0 0.375rem;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 0.25rem;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+  }
+  .kbd {
+    display: inline-block;
+    min-width: 1.25rem;
+    padding: 0 0.3rem;
+    border: 1px solid currentColor;
+    border-radius: 0.25rem;
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    line-height: 1.125rem;
+    text-align: center;
+    opacity: 0.85;
+  }
+  .select {
+    min-height: 2.5rem;
+    padding: 0.25rem 0.5rem;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 0.375rem;
+    color: var(--text);
+    font-size: 0.875rem;
+  }
+  .empty {
+    padding: 2rem 1.25rem;
+    text-align: center;
+  }
+  .section-title {
+    margin-bottom: 0.5rem;
+    color: var(--muted);
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .poster {
+    display: block;
+    width: 3.25rem;
+    height: auto;
+    aspect-ratio: 2 / 3;
+    object-fit: cover;
+    background: var(--surface-2);
+    border-radius: 0.25rem;
+  }
+  /* `display` for this one is set after .panel-poster and .review-poster, further
+     down: a rule of the same weight that came later would put the "?" in a corner. */
+  .poster-none {
+    place-items: center;
+    color: var(--muted);
+    font-weight: 700;
+  }
+  .pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    margin-top: 0.375rem;
+  }
+  .reasons {
+    display: grid;
+    gap: 0.25rem;
+    margin-top: 0.5rem;
+    font-size: 0.875rem;
+  }
+  .release {
+    margin-top: 0.375rem;
+    font-size: 0.8125rem;
+    overflow-wrap: anywhere;
+  }
+  .release-label {
+    margin-right: 0.25rem;
+    color: var(--muted);
+    font-weight: 600;
+  }
+  .release-title {
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+    overflow-wrap: anywhere;
+  }
+
+  /* --- the Inbox ------------------------------------------------------------ */
+  .tabs {
+    display: flex;
+    gap: 0.25rem;
+    margin: 0.5rem 0 0.75rem;
+    overflow-x: auto;
+    border-bottom: 1px solid var(--line);
+  }
+  .tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    min-height: 2.75rem;
+    padding: 0 0.75rem;
+    border-bottom: 2px solid transparent;
+    color: var(--muted);
+    font-size: 0.875rem;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  .tab:hover { color: var(--text); }
+  .tab:focus-visible { outline-offset: -2px; }
+  .tab[aria-current="page"] {
+    color: var(--accent);
+    font-weight: 700;
+    border-bottom-color: var(--accent);
+  }
+  .tab-count {
+    min-width: 1.5rem;
+    padding: 0 0.375rem;
+    background: var(--surface-2);
+    border-radius: 9999px;
+    color: var(--text);
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-align: center;
+  }
+  .filters {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    gap: 0.5rem 0.75rem;
+    margin-bottom: 0.5rem;
+  }
+  .filters label {
+    display: grid;
+    flex: 0 1 11rem;
+    gap: 0.125rem;
+    min-width: 0;
+    color: var(--muted);
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+  .list-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0 1rem;
+    min-height: 2.75rem;
+  }
+  .rows {
+    display: grid;
+    gap: 0.5rem;
+  }
+  .row {
+    display: grid;
+    grid-template-columns: 1.75rem 3.25rem minmax(0, 1fr) auto;
+    gap: 0.75rem;
+    align-items: start;
+    padding: 0.75rem;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 0.5rem;
+  }
+  /* A ticked row: a bar and a border, beside the tick itself. */
+  .row:has(input[name="ids"]:checked) {
+    border-color: var(--accent);
+    box-shadow: inset 4px 0 0 var(--accent);
+  }
+  .row-select {
+    display: grid;
+    place-items: center;
+    min-height: 2.75rem;
+  }
+  .row-select input,
+  .list-head input {
+    width: 1.125rem;
+    height: 1.125rem;
+    accent-color: var(--accent);
+  }
+  .row-title,
+  .review-title,
+  .panel-title {
+    font-weight: 600;
+    overflow-wrap: anywhere;
+  }
+  .row-title a:hover { text-decoration: underline; }
+  .row-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.125rem 0.625rem;
+    margin-top: 0.125rem;
+    color: var(--muted);
+    font-size: 0.8125rem;
+  }
+  .row-verdict {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.25rem 0.5rem;
+    margin-top: 0.375rem;
+    font-size: 0.8125rem;
+  }
+  .row-reason { overflow-wrap: anywhere; }
+  .row-actions {
+    display: flex;
+    gap: 0.5rem;
+  }
+  /* An item an action moved out of the open tab: one line, so the queue visibly shrinks. */
+  .row.row-left {
+    grid-template-columns: minmax(0, 1fr);
+    padding-block: 0.5rem;
+    background: var(--surface-2);
+  }
+  .row-left-line {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.25rem 0.75rem;
+    font-size: 0.875rem;
+  }
+  /* A row's best release: its size first, then the name on one line, cut with an ellipsis
+     (the whole name is its title). A name broken mid-word over three lines read as noise. */
+  .release-one-line {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0 0.25rem;
+  }
+  .release-one-line .release-title {
+    order: 3;
+    flex: 1 1 100%;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .pager {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    margin-top: 1rem;
+  }
+  .bulk-bar {
+    position: sticky;
+    bottom: 1rem;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: fit-content;
+    margin: 1rem auto 0;
+    padding: 0.5rem 0.75rem;
+    background: var(--surface);
+    border: 1px solid var(--accent);
+    border-radius: 0.75rem;
+    box-shadow: var(--shadow);
+    font-size: 0.875rem;
+    font-weight: 600;
+  }
+  .bulk-bar[hidden] { display: none; }
+  @media (max-width: 639.98px) {
+    /* All five tabs in sight: a strip that scrolls sideways hid Done and All,
+       and the open tab with them. */
+    .tabs {
+      flex-wrap: wrap;
+      overflow-x: visible;
+    }
+    .tab { padding: 0 0.5rem; }
+    /* A link that opens an item is as tall to a finger as a button. Block
+       padding on an inline box grows what a tap hits and moves no line. */
+    .tap { padding-block: 0.8125rem; }
+    /* Two to a line: three in one cut "Any source" to "Any sou". */
+    .filters {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+    }
+    .filters .select {
+      width: 100%;
+      min-width: 0;
+    }
+    .review-cta {
+      flex: 1 1 100%;
+      min-height: 2.75rem;
+      margin-bottom: 0.5rem;
+      font-size: 1rem;
+    }
+    .row {
+      grid-template-columns: 1.75rem 3.25rem minmax(0, 1fr);
+      gap: 0.5rem 0.625rem;
+    }
+    .row-actions {
+      grid-column: 1 / -1;
+      display: grid;
+      grid-auto-columns: 1fr;
+      grid-auto-flow: column;
+    }
+    .row-actions .btn,
+    .bulk-bar .btn { min-height: 2.75rem; }
+    .bulk-bar {
+      bottom: calc(4.25rem + env(safe-area-inset-bottom));
+      width: 100%;
+    }
+    .bulk-bar [data-count] { margin-right: auto; }
+  }
+
+  /* --- the slide-over --------------------------------------------------------- */
+  .drawer {
+    position: fixed;
+    inset: 0 0 0 auto;
+    width: min(44rem, 100vw);
+    max-width: none;
+    height: 100dvh;
+    max-height: none;
+    margin: 0;
+    padding: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    background: var(--bg);
+    border: 0;
+    border-left: 1px solid var(--line);
+    box-shadow: var(--shadow);
+    color: var(--text);
+  }
+  .drawer[open] { animation: drawer-in 0.18s ease-out; }
+  /* The page behind an open dialog stays where it is. */
+  html:has(dialog[open]) { overflow: hidden; }
+  .drawer::backdrop { background: rgb(0 0 0 / 0.55); }
+  @keyframes drawer-in {
+    from {
+      opacity: 0;
+      transform: translateX(2rem);
+    }
+  }
+  .drawer-bar {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    display: flex;
+    justify-content: flex-end;
+    padding: 0.5rem 0.75rem;
+    background: var(--surface);
+    border-bottom: 1px solid var(--line);
+  }
+  .drawer .panel { padding: 0.75rem; }
+  .drawer .toasts { bottom: 1rem; }
+
+  /* --- the item panel --------------------------------------------------------- */
+  .item-page {
+    max-width: 48rem;
+    margin: 0 auto;
+  }
+  .item-page .panel { margin-top: 0.75rem; }
+  .panel {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.75rem;
+  }
+  .panel-head {
+    display: grid;
+    grid-template-columns: 6rem minmax(0, 1fr);
+    gap: 1rem;
+  }
+  .panel-poster {
+    display: block;
+    width: 6rem;
+    height: auto;
+    aspect-ratio: 2 / 3;
+    object-fit: cover;
+    background: var(--surface-2);
+    border-radius: 0.375rem;
+  }
+  .panel-title {
+    font-size: 1.25rem;
+    line-height: 1.75rem;
+    font-weight: 700;
+  }
+  .panel-actions,
+  .review-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  .panel-section { padding: 1rem; }
+  .guide {
+    display: grid;
+    gap: 0.875rem;
+  }
+  .guide-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.375rem;
+  }
+  .bar {
+    display: flex;
+    gap: 2px;
+    height: 0.75rem;
+    overflow: hidden;
+    background: var(--surface-2);
+    border-radius: 9999px;
+  }
+  .sev-none { background: var(--bar-none); }
+  .sev-mild { background: var(--bar-mild); }
+  .sev-moderate { background: var(--bar-moderate); }
+  .sev-severe { background: var(--bar-severe); }
+  .bar-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.125rem 0.875rem;
+    margin-top: 0.25rem;
+    color: var(--muted);
+    font-size: 0.75rem;
+  }
+  .swatch {
+    display: inline-block;
+    width: 0.625rem;
+    height: 0.625rem;
+    margin-right: 0.25rem;
+    border-radius: 2px;
+  }
+  .facts {
+    display: grid;
+    gap: 0.375rem;
+    margin-top: 0.5rem;
+    font-size: 0.875rem;
+  }
+  .facts > div {
+    display: grid;
+    grid-template-columns: 7rem minmax(0, 1fr);
+    gap: 0.5rem;
+  }
+  .facts dt {
+    color: var(--muted);
+    overflow-wrap: anywhere;
+  }
+  .facts-wide > div { grid-template-columns: 11rem minmax(0, 1fr); }
+  @media (max-width: 639.98px) {
+    .facts-wide > div { grid-template-columns: 8rem minmax(0, 1fr); }
+  }
+  .search + .search { margin-top: 0.5rem; }
+  .search summary,
+  .post summary,
+  .keys summary {
+    min-height: 2rem;
+    color: var(--muted);
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .releases {
+    display: grid;
+    gap: 0.375rem;
+    margin-top: 0.375rem;
+  }
+  .releases li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.5rem 0.625rem;
+    background: var(--surface-2);
+    border-radius: 0.375rem;
+  }
+  .download {
+    display: grid;
+    gap: 0.375rem;
+  }
+  .progress {
+    width: 100%;
+    height: 0.625rem;
+    overflow: hidden;
+    appearance: none;
+    background: var(--surface-2);
+    border: 0;
+    border-radius: 9999px;
+  }
+  .progress::-webkit-progress-bar { background: var(--surface-2); }
+  .progress::-webkit-progress-value { background: var(--accent); }
+  .progress::-moz-progress-bar { background: var(--accent); }
+  .post-text,
+  .post pre {
+    margin-top: 0.5rem;
+    padding: 0.625rem;
+    background: var(--surface-2);
+    border-radius: 0.375rem;
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .history {
+    display: grid;
+    gap: 0.375rem;
+    font-size: 0.875rem;
+  }
+  .history li {
+    display: grid;
+    grid-template-columns: 11rem minmax(0, 1fr);
+    gap: 0.75rem;
+  }
+  .history time { color: var(--muted); }
+  @media (max-width: 639.98px) {
+    .panel-head {
+      grid-template-columns: 4.5rem minmax(0, 1fr);
+      gap: 0.75rem;
+    }
+    .panel-poster { width: 4.5rem; }
+    .panel-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+    }
+    .history li {
+      grid-template-columns: 1fr;
+      gap: 0;
+    }
+    .releases li .btn { min-height: 2.75rem; }
+  }
+
+  /* --- Review ----------------------------------------------------------------- */
+  /* A new card fades in, so a key or a swipe visibly changed it. The base
+     layer's reduced-motion rule takes the transition out. */
+  .review {
+    max-width: 60rem;
+    transition: opacity 0.18s ease-out, transform 0.18s ease-out;
+  }
+  .review.htmx-added {
+    opacity: 0;
+    transform: translateY(0.375rem);
+  }
+  .review-place {
+    color: var(--muted);
+    font-size: 0.875rem;
+  }
+  .review-nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+  }
+  .review-body {
+    display: grid;
+    grid-template-columns: 12rem minmax(0, 1fr);
+    gap: 1.25rem;
+    padding: 1.25rem;
+  }
+  .review-poster {
+    display: block;
+    width: 100%;
+    height: auto;
+    aspect-ratio: 2 / 3;
+    object-fit: cover;
+    background: var(--surface-2);
+    border-radius: 0.375rem;
+  }
+  .poster-none,
+  .panel-poster.poster-none,
+  .review-poster.poster-none { display: grid; }
+  .review-title {
+    font-size: 1.375rem;
+    line-height: 1.75rem;
+    font-weight: 700;
+  }
+  .review-plot {
+    margin-top: 0.75rem;
+    color: var(--muted);
+    font-size: 0.9375rem;
+  }
+  .review-actions { margin: 1rem 0 0.75rem; }
+  .post { margin-top: 0.5rem; }
+  .keys {
+    max-width: 60rem;
+    margin-top: 1rem;
+  }
+  .keys dl {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.375rem 1.25rem;
+    margin-top: 0.25rem;
+    font-size: 0.8125rem;
+  }
+  .keys dl > div {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+  }
+  .swipe-hint { display: none; }
+  @media (max-width: 639.98px) {
+    /* Room for the action bar, which sits on the bottom nav. */
+    body:has(.review-actions) .shell-main { padding-bottom: calc(9.5rem + env(safe-area-inset-bottom)); }
+    /* The item starts near the top: no page heading on show (it stays for a
+       screen reader), the banner in one line, and the place in the queue as a
+       thin strip. Previous and Next are hidden: a swipe, J and K press them. */
+    .review-heading {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+    body:has(.review) .banner { padding-block: 0.375rem; }
+    body:has(.review) .banner-long { display: none; }
+    body:has(.review) .banner-short { display: inline; }
+    .review-nav { margin-bottom: 0.375rem; }
+    .review-nav .btn { display: none; }
+    .review-order { display: none; }
+    .review-body {
+      grid-template-columns: 4rem minmax(0, 1fr);
+      gap: 0.75rem;
+      padding: 0.75rem;
+    }
+    .review-title {
+      font-size: 1.125rem;
+      line-height: 1.5rem;
+    }
+    .review-actions {
+      position: fixed;
+      inset: auto 0 calc(3.5625rem + env(safe-area-inset-bottom)) 0;
+      z-index: 20;
+      display: grid;
+      grid-auto-columns: 1fr;
+      grid-auto-flow: column;
+      gap: 0.375rem;
+      margin: 0;
+      padding: 0.5rem 0.75rem;
+      background: var(--surface);
+      border-top: 1px solid var(--line);
+    }
+    .review-actions .btn {
+      padding: 0.25rem;
+      font-size: 0.9375rem;
+    }
+    .kbd,
+    .keys {
+      display: none;
+    }
+    .swipe-hint {
+      display: block;
+      margin-top: 0.75rem;
+      color: var(--muted);
+      font-size: 0.8125rem;
+      text-align: center;
+    }
+    /* A toast must not land on the action bar. */
+    body:has(.review-actions) > .toasts { bottom: calc(8.25rem + env(safe-area-inset-bottom)); }
+  }
+}

@@ -1,0 +1,27 @@
+{# Why the page can or cannot change the config file. Needs `state` (web/configfile.py). #}
+{% if state.mode == 'file' %}
+<div class="notice notice-info mb-4" role="status" id="config-state">
+    <svg class="shrink-0 mt-0.5" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+    <span><strong>Managed by file.</strong> <code>CONFIG_READONLY</code> is set, so this page shows the config and changes nothing.
+    To change it, edit <code class="break-all">{{ state.path }}</code> where the file is kept, deploy it and restart vettarr.</span>
+</div>
+{% elif state.mode == 'environment' %}
+<div class="notice notice-info mb-4" role="status" id="config-state">
+    <svg class="shrink-0 mt-0.5" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+    <span><strong>No config file.</strong> This instance booted from environment variables, so there is nothing to change here.
+    <code>vettarr config import-env -o {{ state.path }}</code> writes the file those variables stand for; restart on it and this page edits it.</span>
+</div>
+{% elif state.mode == 'broken' %}
+<div class="notice notice-error mb-4" role="alert" id="config-state">
+    <span aria-hidden="true">&#10007;</span>
+    <div><strong>The config file does not load.</strong> The page shows the config the app is running on and changes nothing until the file is fixed.
+        <ul class="mt-1 list-disc pl-5">{% for line in state.errors %}<li class="break-words">{{ line }}</li>{% endfor %}</ul>
+    </div>
+</div>
+{% endif %}
+{% if state.pending %}
+<div class="notice notice-warn mb-4" role="status" id="config-pending">
+    <span aria-hidden="true">&#9888;</span>
+    <span><strong>Restart to apply.</strong> The config file holds changes the running app has not loaded. It reads the file once, at start: restart the container (<code>docker compose restart app</code>) and they apply.</span>
+</div>
+{% endif %}

@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block title %}Policy · vettarr{% endblock %}
+{% block content %}
+<h1 class="page-title">Policy</h1>
+<p class="text-muted mt-1 mb-4 max-w-3xl">What vettarr does with an item once it knows what it is: approve it, hold it for you, or reject it.
+    {% if state.writable %}Try a change against the items already decided before you save it.{% else %}Preview impact shows what the policy as the file has it decides for the items already stored.{% endif %}</p>
+{% include "policy/_editor.html" %}
+{% endblock %}

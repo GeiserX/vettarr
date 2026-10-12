@@ -1,0 +1,179 @@
+{% extends "base.html" %}
+{% block title %}Stats · vettarr{% endblock %}
+{% block content %}
+{% set tab = 'stats' %}{% include "_stats_tabs.html" %}
+<p class="text-sm text-muted mb-4">What the policy and the providers did in the last {{ days }} days.</p>
+
+<ul class="stat-tiles mb-6" aria-label="Decisions in the last {{ days }} days">
+    <li class="card stat-tile">
+        <span class="stat-label">Decisions</span>
+        <span class="stat-value">{{ chart.total }}</span>
+    </li>
+    {% for key, label in outcomes %}
+    <li class="card stat-tile">
+        <span class="stat-label"><span class="chart-swatch chart-{{ key }}" aria-hidden="true"></span>{{ label }}</span>
+        <span class="stat-value">{{ chart.totals[key] }}</span>
+    </li>
+    {% endfor %}
+</ul>
+
+<section class="card p-4 mb-6" aria-labelledby="per-day">
+    <h2 class="section-title" id="per-day">Decisions per day</h2>
+    {% if chart.total %}
+    <ul class="legend" aria-hidden="true">
+        {% for key, label in outcomes %}
+        <li><span class="chart-swatch chart-{{ key }}"></span>{{ label }}</li>
+        {% endfor %}
+    </ul>
+    <div class="chart">
+        <div class="chart-y" aria-hidden="true">
+            {% for tick in chart.ticks %}<span>{{ tick }}</span>{% endfor %}
+        </div>
+        <svg class="chart-plot" viewBox="0 0 {{ chart.width }} {{ chart.HEIGHT }}" preserveAspectRatio="none"
+             role="img" aria-label="{{ chart.summary }}">
+            {% for tick in chart.ticks %}
+            <line class="chart-grid" x1="0" x2="{{ chart.width }}" y1="{{ chart.HEIGHT - chart.HEIGHT * tick / chart.top }}" y2="{{ chart.HEIGHT - chart.HEIGHT * tick / chart.top }}"/>
+            {% endfor %}
+            {% for day in chart.days %}
+            {% for s in day.segments %}
+            <rect class="chart-{{ s.outcome }}" x="{{ day.x }}" y="{{ s.y }}" width="{{ chart.BAR }}" height="{{ s.height }}"><title>{{ s.title }}</title></rect>
+            {% endfor %}
+            {% endfor %}
+        </svg>
+        <div class="chart-x" aria-hidden="true">
+            <span>{{ chart.days[0].label }}</span>
+            <span>{{ chart.days[chart.days|length // 2].label }}</span>
+            <span>Today</span>
+        </div>
+    </div>
+    {#- One row of words per day, not a table: five number columns do not fit a phone's width. #}
+    <details class="mt-3">
+        <summary class="text-sm text-accent cursor-pointer">Show the numbers per day</summary>
+        <ul class="stat-rows mt-2">
+            {% for day in chart.days|reverse if day.total %}
+            <li>
+                <div class="bar-row">
+                    <span class="font-semibold">{{ day.label }}</span>
+                    <span class="num">{{ day.total }} decision{{ '' if day.total == 1 else 's' }}</span>
+                </div>
+                <p class="text-sm text-muted">
+                    {%- for key, label in outcomes if day.counts[key] %}{{ day.counts[key] }} {{ outcome_words[key] }}{{ ', ' if not loop.last else '.' }}{% endfor -%}
+                </p>
+            </li>
+            {% endfor %}
+        </ul>
+    </details>
+    {% else %}
+    <p class="text-muted text-sm">The policy decided nothing in the last {{ days }} days.</p>
+    {% endif %}
+</section>
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+    <section class="card p-4" aria-labelledby="top-reasons">
+        <h2 class="section-title" id="top-reasons">Why items were not approved</h2>
+        <p class="text-sm text-muted mb-3">The reasons of the items the policy held, left waiting or rejected, by how many items carry each.</p>
+        {% if reasons %}
+        <ol class="bar-list">
+            {% for reason in reasons %}
+            <li>
+                <div class="bar-row"><span>{{ reason.label }}</span><span class="num">{{ reason.count }}</span></div>
+                <div class="bar-track" aria-hidden="true"><span class="bar-fill" style="width: {{ reason.percent }}%"></span></div>
+            </li>
+            {% endfor %}
+        </ol>
+        {% else %}
+        <p class="text-muted text-sm">Nothing was held, left waiting or rejected.</p>
+        {% endif %}
+    </section>
+
+    <section class="card p-4" aria-labelledby="per-type">
+        <h2 class="section-title" id="per-type">Outcome per type</h2>
+        <p class="text-sm text-muted mb-3">What became of each type's items, by the policy's latest decision on each.</p>
+        {% if types %}
+        <ul class="bar-list">
+            {% for type in types %}
+            <li>
+                <div class="bar-row"><span class="badge badge-{{ type.media_type }}">{{ type.media_type }}</span><span class="num">{{ type.total }}</span></div>
+                <div class="bar-stack" aria-hidden="true">
+                    {% for part in type.parts %}<span class="chart-{{ part.label }}" style="width: {{ part.percent }}%"></span>{% endfor %}
+                </div>
+                <p class="text-sm text-muted">{{ type.words }}</p>
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p class="text-muted text-sm">No decisions yet.</p>
+        {% endif %}
+    </section>
+</div>
+
+<section class="card p-4 mb-6" aria-labelledby="shadow">
+    <h2 class="section-title" id="shadow">Shadow agreement</h2>
+    {% if agreement.total %}
+    <p class="text-sm text-muted mb-3">In shadow mode the policy decides and leaves every item to you. This is what you then did with them.</p>
+    {% if agreement.percent is not none %}
+    <p class="mb-3"><span class="stat-value">{{ agreement.percent }}%</span>
+        <span class="text-sm text-muted">agreement: you did what the policy would have on {{ agreement.agreed }} of the {{ agreement.decided }} you decided.</span></p>
+    {% endif %}
+    <ul class="space-y-1">
+        {% for row in agreement.rows %}<li>{{ row.sentence }}</li>{% endfor %}
+    </ul>
+    {% else %}
+    <p class="text-muted text-sm">No shadow decisions in the last {{ days }} days. With <code>policy.auto_approve: shadow</code> the policy decides every item, does nothing, and this page compares its decisions with yours.</p>
+    {% endif %}
+</section>
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <section class="card p-4" aria-labelledby="guards">
+        <h2 class="section-title" id="guards">Provider pauses</h2>
+        <p class="text-sm text-muted mb-3">A provider is paused when it refuses the session or asks to slow down. Nothing is sent to it until the pause ends.</p>
+        {% if guards %}
+        <ul class="stat-rows">
+            {% for guard in guards %}
+            <li>
+                <div class="bar-row">
+                    <span class="font-semibold">{{ guard.name }}</span>
+                    {% if guard.paused_minutes is not none %}
+                    <span class="badge badge-warn">{{ guard.state }}</span>
+                    {% else %}
+                    <span class="badge badge-ok">{{ guard.state }}</span>
+                    {% endif %}
+                </div>
+                <p class="text-sm text-muted">
+                    {% if guard.pauses %}
+                    Paused {{ guard.pauses }} time{{ '' if guard.pauses == 1 else 's' }}{% if guard.expired %}, session expired {{ guard.expired }} time{{ '' if guard.expired == 1 else 's' }}{% endif %}.
+                    Last: {{ guard.last_at.day }} {{ guard.last_at.strftime('%b %H:%M') }}, {{ guard.last_reason }}.
+                    {% else %}
+                    No pause in the last {{ days }} days.
+                    {% endif %}
+                </p>
+            </li>
+            {% endfor %}
+        </ul>
+        <p class="mt-3 text-sm"><a class="link" href="/activity?kind=guard">Every pause in Activity</a></p>
+        {% else %}
+        <p class="text-muted text-sm">No provider is configured and none was paused.</p>
+        {% endif %}
+    </section>
+
+    <section class="card p-4" aria-labelledby="downloads">
+        <h2 class="section-title" id="downloads">Downloads per provider</h2>
+        <p class="text-sm text-muted mb-3">Every download this instance started, by the provider its release came from.</p>
+        {% if downloads %}
+        <ul class="stat-rows">
+            {% for row in downloads %}
+            <li>
+                <div class="bar-row">
+                    <span class="font-semibold">{{ row.provider }}</span>
+                    <span class="num">{{ row.size|size_fmt if row.size else 'size unknown' }}</span>
+                </div>
+                <p class="text-sm text-muted">{{ row.total }} download{{ '' if row.total == 1 else 's' }}: {{ row.completed }} done, {{ row.running }} running, {{ row.failed }} failed.</p>
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p class="text-muted text-sm">Nothing has been downloaded yet.</p>
+        {% endif %}
+    </section>
+</div>
+{% endblock %}

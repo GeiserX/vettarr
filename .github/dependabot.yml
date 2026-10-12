@@ -1,0 +1,45 @@
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+    labels: ["dependencies", "automated"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    cooldown:
+      default-days: 3
+    groups:
+      security:
+        applies-to: security-updates
+        patterns: ["*"]
+      minor-and-patch:
+        update-types: [minor, patch]
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    labels: ["dependencies", "automated"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    cooldown:
+      default-days: 3
+    groups:
+      security:
+        applies-to: security-updates
+        patterns: ["*"]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    labels: ["ci", "automated"]
+    cooldown:
+      default-days: 3
+    groups:
+      security:
+        applies-to: security-updates
+        patterns: ["*"]
+      minor-and-patch:
+        update-types: [minor, patch]

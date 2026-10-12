@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% import "partials/bits.html" as bits %}
+{% block title %}Inbox · vettarr{% endblock %}
+{% block content %}
+<h1 class="page-title">Inbox</h1>
+{% with counts = inbox.counts %}{% include "partials/inbox_tabs.html" %}{% endwith %}
+
+{# A change applies at once: the list is swapped and the tabs get their new counts.
+   hx-history="false": htmx keeps no copy of this page in sessionStorage, where the
+   titles would outlive the session, and Back or Forward reads the list again from
+   the server, with the selects saying what it shows. #}
+<form class="filters" method="get" action="/" aria-label="Filters" hx-history="false"
+      hx-get="/" hx-trigger="change" hx-target="#inbox-list" hx-select="#inbox-list" hx-select-oob="#inbox-tabs"
+      hx-swap="outerHTML" hx-push-url="true">
+    <input type="hidden" name="tab" value="{{ tab.key }}">
+    <label>Type
+        <select class="select" name="type">
+            <option value="">Any type</option>
+            {% for t in media_types %}<option value="{{ t }}" {% if filters.type == t %}selected{% endif %}>{{ t }}</option>{% endfor %}
+        </select>
+    </label>
+    <label>Source
+        <select class="select" name="source">
+            <option value="">Any source</option>
+            {% for s in inbox.sources %}<option value="{{ s }}" {% if filters.source == s %}selected{% endif %}>{{ s }}</option>{% endfor %}
+            {% if filters.source and filters.source not in inbox.sources %}<option value="{{ filters.source }}" selected>{{ filters.source }}</option>{% endif %}
+        </select>
+    </label>
+    <label>Policy outcome
+        <select class="select" name="outcome">
+            <option value="">Any outcome</option>
+            {% for o in outcomes %}<option value="{{ o }}" {% if filters.outcome == o %}selected{% endif %}>{{ o }}</option>{% endfor %}
+        </select>
+    </label>
+    <noscript><button class="btn btn-secondary">Apply</button></noscript>
+</form>
+
+<div id="inbox-list">
+    <div class="list-head">
+        {% set selectable = inbox.cards|selectattr('selectable')|list|length %}
+        {% if selectable %}
+        <label class="check"><input type="checkbox" data-select-all> Select all {{ selectable }} on this page</label>
+        {% endif %}
+        <p class="text-sm text-muted ml-auto">{{ inbox.total }} item{{ '' if inbox.total == 1 else 's' }}{% if filters.any %}, filtered{% endif %} · {{ 'oldest' if tab.oldest_first else 'newest' }} first</p>
+        {# The fast loop: the same queue, one item at a time, with keys and swipes. Review
+           has no filters, so the number is said only when the list is not filtered. #}
+        {% if tab.key == 'needs' and inbox.counts.needs %}
+        <a class="btn btn-primary review-cta" href="/review">Review {% if not filters.any %}{{ inbox.counts.needs }} {% endif %}one at a time</a>
+        {% endif %}
+    </div>
+
+    {% if inbox.cards %}
+    <div class="rows">
+        {% for card in inbox.cards %}{% include "partials/inbox_row.html" %}{% endfor %}
+    </div>
+    {% else %}
+    <div class="card empty">
+        <p class="font-semibold">{{ tab.empty }}</p>
+        {% if filters.any %}<p class="text-muted mt-1">The filters may be hiding items. <a class="link" href="/?tab={{ tab.key }}">Clear the filters</a></p>{% endif %}
+    </div>
+    {% endif %}
+
+    {% if inbox.pages > 1 %}
+    <nav class="pager" aria-label="Pages">
+        {% if inbox.page > 1 %}<a class="btn btn-secondary" href="/?{{ filters.query(tab=tab.key, page=inbox.page - 1) }}">Previous</a>{% endif %}
+        <span class="text-sm text-muted">Page {{ inbox.page }} of {{ inbox.pages }}</span>
+        {% if inbox.page < inbox.pages %}<a class="btn btn-secondary" href="/?{{ filters.query(tab=tab.key, page=inbox.page + 1) }}">Next</a>{% endif %}
+    </nav>
+    {% endif %}
+
+    {# Shown by app.js while a row is ticked, which also puts the count in the
+       dialog's title. The ticked boxes travel with either button. #}
+    <div id="bulk-bar" class="bulk-bar" hidden>
+        <span data-count role="status">0 selected</span>
+        <button class="btn btn-primary" hx-post="/bulk/approve" hx-include="[name='ids']:checked" hx-swap="none" hx-disabled-elt="#bulk-bar button">Approve</button>
+        <button class="btn btn-danger-outline" hx-post="/bulk/reject" hx-include="[name='ids']:checked" hx-swap="none" hx-disabled-elt="#bulk-bar button"
+                data-confirm-title="Reject the selected items?" data-confirm="{{ inbox.bulk_reject_confirm }}" data-confirm-action="Reject">Reject</button>
+    </div>
+</div>
+
+{{ bits.drawer() }}
+{% endblock %}

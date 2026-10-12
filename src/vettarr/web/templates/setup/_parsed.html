@@ -1,0 +1,19 @@
+{# What a pasted post reads as. Needs `parsed` (routes/setup.py read_post()). #}
+<div class="card p-3 bg-surface-2" role="status">
+    {% if parsed.read_by and parsed.label %}
+    <p class="state state-warn"><span aria-hidden="true">&#9888;</span><span>Read by <span class="font-mono">{{ parsed.read_by }}</span>, but its title is the post's first line, and the post has labelled lines such as {{ parsed.label }}:. Add a card format with {{ parsed.label }} under Title labels, so the title is read from its line.</span></p>
+    {% elif parsed.read_by %}
+    <p class="state state-ok"><span aria-hidden="true">&#10003;</span><span>Read by <span class="font-mono">{{ parsed.read_by }}</span>: it would arrive as a {{ parsed.media_type }}.</span></p>
+    {% elif parsed.ignored %}
+    <p class="state state-warn"><span aria-hidden="true">&#9888;</span><span>Not media: {{ parsed.ignored }}. It would be ignored: never reviewed, and its post never touched.</span></p>
+    {% else %}
+    <p class="state state-bad"><span aria-hidden="true">&#10007;</span><span>No format reads both a title and a type in it. It would land in Parse failed, for you to look at.</span></p>
+    {% endif %}
+    {% if parsed.fields %}
+    <dl class="kv mt-2">
+        {% for label, value in parsed.fields %}<dt>{{ label }}</dt><dd>{{ value }}</dd>{% endfor %}
+    </dl>
+    {% endif %}
+    {% if parsed.linked %}<p class="hint">Its link is torrent {{ parsed.linked.id }} on <span class="font-mono">{{ parsed.linked.provider }}</span>: that exact torrent is fetched, with no search.</p>{% endif %}
+    <p class="hint">A bare title or an IMDb, TMDB or TVDB link is named through TMDB when a post arrives. That lookup is not run here.</p>
+</div>

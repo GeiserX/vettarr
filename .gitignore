@@ -1,0 +1,30 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.env
+*.session
+*.session-journal
+.venv/
+venv/
+.omc/
+
+# The compiled stylesheet and the Tailwind CLI that builds it (scripts/build-css.sh)
+/src/vettarr/web/static/app.css
+/.cache/
+
+# A local config file holds chat ids, hosts and usernames; the writer's backup and temp files too
+/config.yaml
+/config.yaml.bak
+/.config.yaml.*.tmp
+# What docker-compose.yml keeps beside it: the app's /data and the database
+/data/
+/postgres/
+.claude/*
+!.claude/settings.json
+
+# Beads: bead text lives in the Dolt tracker only, never in git
+.beads/issues.jsonl
+.beads/interactions.jsonl
+.beads/events.jsonl

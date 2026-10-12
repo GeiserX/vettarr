@@ -1,0 +1,67 @@
+{# Pieces the row, the review card and the item panel all draw. A rating and a
+   status always carry their word: the colour only repeats it. #}
+
+{% macro poster(card, cls="poster") -%}
+{% if card.poster %}<img class="{{ cls }}" src="{{ card.poster }}" alt="" loading="lazy" width="96" height="144">
+{%- else %}<span class="{{ cls }} poster-none" aria-hidden="true">?</span>{% endif %}
+{%- endmacro %}
+
+{# `hide`: a status the page already says, such as the open tab's own name. #}
+{% macro chips(card, hide='') -%}
+{% if card.status[0] != hide %}<span class="badge badge-{{ card.status[1] }}">{{ card.status[0] }}</span>{% endif %}
+{% if card.verdict %}<span class="badge badge-{{ card.verdict[1] }}">{{ card.verdict[0] }}</span>{% endif %}
+{%- endmacro %}
+
+{% macro meta(card) -%}
+<span class="badge badge-{{ card.media_type }}">{{ card.media_type }}</span>
+{% if card.item.season %}<span>{{ card.item.season }}</span>{% endif %}
+{% if card.item.size_text %}<span>{{ card.item.size_text }}</span>{% endif %}
+{% if card.item.quality or card.item.source %}<span>{{ card.item.quality or '' }} {{ card.item.source or '' }}</span>{% endif %}
+{% if card.item.source_key %}<span>from {{ card.item.source_key }}</span>{% endif %}
+{% if card.age %}<span>{{ card.age }}</span>{% endif %}
+{%- endmacro %}
+
+{# `row`: only what is rated above none, as a row has room for; the item page shows every category. #}
+{% macro pills(card, row=false) -%}
+{% set shown = card.row_pills if row else card.pills %}
+{% if shown %}
+<ul class="pills" aria-label="Parents guide">
+    {% for label, severity in shown %}<li class="pill pill-{{ severity }}">{{ label }}: {{ severity }}</li>{% endfor %}
+</ul>
+{% elif card.guide_expected and not card.pills %}
+<ul class="pills" aria-label="Parents guide"><li class="pill pill-unknown">Parents guide: no ratings</li></ul>
+{% endif %}
+{%- endmacro %}
+
+{% macro reason(line) -%}
+<span class="tag">{{ line.tag }}</span>{% if line.note %} <span class="text-muted">{{ line.note }}:</span>{% endif %} {{ line.text }}
+{%- endmacro %}
+
+{% macro best(card, row=false) -%}
+{% if card.direct_add %}
+<p class="release"><span class="release-label">Direct add</span> Approving downloads the {{ card.direct_add }} this post carries, as it is.</p>
+{% elif card.best %}
+<p class="release{{ ' release-one-line' if row }}"><span class="release-label">Best release</span>
+    <span class="release-title"{% if row %} title="{{ card.best.title }}"{% endif %}>{{ card.best.title }}</span>
+    <span class="text-muted">{{ card.best.size|size_fmt }} · {{ card.best.seeders or 0 }} seeders{% if card.best.found > 1 %} · {{ card.best.found }} found{% endif %}</span></p>
+{% elif card.search %}
+<p class="release"><span class="release-label">Best release</span> <span class="text-muted">The last search found nothing.</span></p>
+{% elif card.item.title %}
+<p class="release"><span class="release-label">Best release</span> <span class="text-muted">Not searched yet.</span></p>
+{% endif %}
+{%- endmacro %}
+
+{# The way on for a post nothing could read: teach a format with it, in Setup. #}
+{% macro teach(card, cls="btn btn-secondary") -%}
+{% if card.unreadable %}<a class="{{ cls }}" href="{{ card.teach_href }}">Teach a format</a>{% endif %}
+{%- endmacro %}
+
+{# The slide-over an item opens in. htmx fills #drawer-body and app.js opens
+   the dialog; closing it empties the body, which also ends its polling. #}
+{% macro drawer() -%}
+<dialog id="drawer" class="drawer" aria-label="Item">
+    <form method="dialog" class="drawer-bar"><button class="btn btn-secondary">Close</button></form>
+    <div id="drawer-body"></div>
+    <div class="toasts" aria-live="polite"></div>
+</dialog>
+{%- endmacro %}

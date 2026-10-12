@@ -1,0 +1,279 @@
+{% extends "base.html" %}
+{% block title %}Setup · vettarr{% endblock %}
+{% block content %}
+{% set ro = not state.writable %}
+{% macro saved_note(section) %}
+{% if saved == section %}
+<div class="notice notice-ok mt-3" role="status">
+    <span aria-hidden="true">&#10003;</span>
+    <span><strong>Saved to the config file.</strong> Restart the container to apply it (<code>docker compose restart app</code>).</span>
+</div>
+{% endif %}
+{% endmacro %}
+{% macro cookie_form(p, open) %}
+<details class="fold mt-1" {% if open %}open{% endif %}>
+    <summary>Paste new cookies</summary>
+    <form class="pb-2" method="post" action="/settings/cookies/{{ p.key }}" hx-post="/settings/cookies/{{ p.key }}" hx-target="#cookies-{{ p.key }}" hx-swap="innerHTML">
+        <label class="label" for="cookies-json-{{ p.key }}">A cookie export from your browser, as JSON</label>
+        <textarea class="input font-mono text-sm" rows="4" id="cookies-json-{{ p.key }}" name="cookies_json" spellcheck="false" placeholder='[{"domain": "...", "name": "...", "value": "..."}]'></textarea>
+        <p class="hint">Written to the cookie file above and tried once against the tracker. Nothing is shown back.</p>
+        <button class="btn btn-primary btn-lg mt-2">Save the cookies</button>
+    </form>
+    <div class="pb-2 text-sm" id="cookies-{{ p.key }}" role="status"></div>
+</details>
+{% endmacro %}
+<h1 class="page-title">Setup</h1>
+<p class="text-muted mt-1 mb-4 max-w-3xl">Where posts come from, what is searched and what is connected. Opening this page sends nothing anywhere: a tracker or a service is only asked when you press its button.</p>
+{% include "_config_state.html" %}
+
+{% if checklist %}
+<section class="card p-4 mb-4" aria-labelledby="h-checklist">
+    <h2 class="setup-title" id="h-checklist">Before it does anything</h2>
+    <ul class="checklist mt-2">
+        {% for item in checklist %}
+        <li>
+            {% if item.done %}
+            <span class="state state-ok shrink-0" style="min-width: 5.5rem"><span aria-hidden="true">&#10003;</span>Done</span>
+            <span class="text-muted">{{ item.name }}</span>
+            {% else %}
+            <span class="state state-bad shrink-0" style="min-width: 5.5rem"><span aria-hidden="true">&#10007;</span>Missing</span>
+            <span><a class="font-semibold underline" href="{{ item.href }}">{{ item.name }}</a>. {{ item.missing }}</span>
+            {% endif %}
+        </li>
+        {% endfor %}
+    </ul>
+</section>
+{% endif %}
+
+<nav class="jump-links mb-6" aria-label="Sections of this page">
+    {% for anchor, label in sections %}<a href="#{{ anchor }}">{{ label }}</a>{% endfor %}
+</nav>
+
+<div class="space-y-10">
+
+<section class="setup-section" id="sources" aria-labelledby="h-sources">
+    <h2 class="setup-title" id="h-sources">Sources</h2>
+    <p class="hint">Where posts come from. Each item remembers the source it came through.</p>
+    {{ saved_note('sources') }}
+
+    {% for chat in hints %}
+    <div class="card p-4 mt-3 border-accent" id="hint-{{ loop.index }}">
+        <p><strong>The bot was added to {{ chat.title }}.</strong> Use it as a source?</p>
+        <p class="hint">
+            {% if chat.is_admin %}It is an admin there, so it sees every message and can delete or react to a post.
+            {% elif chat.reads_all %}Privacy mode is off, so it sees every message. It is not an admin, so it cannot delete a post.
+            {% else %}Privacy mode is on and it is not an admin, so it only sees commands and replies to it. Make it an admin of the chat, or turn privacy mode off in @BotFather, or it will read nothing.{% endif %}
+        </p>
+        <form class="flex flex-wrap items-end gap-2 mt-3" method="post" action="/setup/sources" hx-post="/setup/sources" hx-swap="none">
+            <input type="hidden" name="brief" value="1">
+            <input type="hidden" name="original" value="">
+            <input type="hidden" name="kind" value="bot">
+            <input type="hidden" name="chat" value="{{ chat.chat_id }}">
+            <div>
+                <label class="label" for="hint-{{ loop.index }}-key">Key</label>
+                <input class="input font-mono" id="hint-{{ loop.index }}-key" name="key" value="{{ chat.key }}" autocapitalize="none" spellcheck="false">
+            </div>
+            <button class="btn btn-primary btn-lg">Add it as a source</button>
+        </form>
+    </div>
+    {% endfor %}
+
+    <div class="grid gap-3 lg:grid-cols-2 mt-3 items-start">
+        {% for entry in sources %}
+        {% set s = entry.source %}
+        {% set failed = entry.form.errors or entry.form.problems %}
+        <div class="card p-4">
+            <div class="flex flex-wrap items-center gap-2">
+                <h3 class="font-semibold font-mono">{{ s.key }}</h3>
+                <span class="badge badge-unknown">{{ s.kind }}</span>
+            </div>
+            <dl class="kv mt-2">
+                {% if s.kind != 'seerr' %}<dt>Chat</dt><dd class="font-mono">{{ s.chat }}</dd>{% endif %}
+                {% if s.kind == 'userbot' %}<dt>Posts from before</dt><dd>{{ {'off': 'none, only new posts', 'since_last': 'since the last one read', 'full': 'the whole history'}[s.backfill] }}</dd>{% endif %}
+                {% if s.kind == 'seerr' %}<dt>Asked every</dt><dd>{{ s.poll_minutes }} min</dd>
+                <dt>Webhook</dt><dd>{% if entry.form.vals.webhook_secret_state %}<span class="state state-ok"><span aria-hidden="true">&#10003;</span>secret {{ entry.form.vals.webhook_secret_state }}</span> <span class="font-mono break-all">/hooks/seerr/{{ s.key }}</span>{% else %}<span class="state state-off"><span aria-hidden="true">&#9675;</span>off: no secret set, the poll alone reads Seerr</span>{% endif %}</dd>{% endif %}
+                {% if s.kind != 'seerr' %}<dt>Read with</dt><dd>{% if s.formats %}<span class="font-mono">{{ s.formats|join(', ') }}</span>{% else %}every format, in the file's order{% endif %}</dd>{% endif %}
+                <dt>Messages from</dt><dd>{% if s.allowed_senders is string %}{{ {'reviewers': 'the reviewers', 'anyone': 'anyone'}[s.allowed_senders] }}{% else %}{{ s.allowed_senders|length }} listed user ids{% endif %}</dd>
+                {% if s.kind != 'seerr' %}
+                <dt>Own torrents from</dt><dd>{{ {'reviewers': 'the reviewers', 'anyone': 'anyone', 'off': 'nobody'}[s.direct_adds] }}</dd>
+                <dt>After a download</dt><dd>the post is {{ {'none': 'left alone', 'react': 'reacted to', 'delete': 'deleted'}[s.on_download] }}</dd>
+                <dt>After a reject</dt><dd>the post is {{ {'none': 'left alone', 'react': 'reacted to', 'delete': 'deleted'}[s.on_reject] }}</dd>
+                {% endif %}
+                {% if s.notify_on_review %}<dt>Held items</dt><dd>sent to the reviewers through the bot</dd>{% endif %}
+            </dl>
+            {% if not ro %}
+            <details class="fold mt-2" {% if failed %}open{% endif %}>
+                <summary>Change</summary>
+                {% with form = entry.form %}{% include "setup/_source_form.html" %}{% endwith %}
+                <form class="mt-2" method="post" action="/setup/sources/{{ s.key }}/delete" hx-post="/setup/sources/{{ s.key }}/delete" hx-swap="none"
+                      data-confirm-title="Remove the source {{ s.key }}?" data-confirm="It is removed from the config file, and after a restart nothing arrives through it. The items it already brought stay." data-confirm-action="Remove">
+                    <button class="btn btn-quiet text-danger">Remove this source</button>
+                </form>
+            </details>
+            {% endif %}
+        </div>
+        {% else %}
+        <p class="card p-4 text-muted lg:col-span-2">No source yet.</p>
+        {% endfor %}
+    </div>
+
+    {% if not ro %}
+    <h3 class="font-semibold mt-5">Add a source</h3>
+    <div class="space-y-2 mt-2">
+        {% for kind, label, what in source_kinds %}
+        {% set form = adding[kind] %}
+        <details class="fold card px-4 pb-1" {% if form.errors or form.problems %}open{% endif %}>
+            <summary>{{ label }}</summary>
+            <p class="hint">{{ what }}</p>
+            <div class="pb-3">{% include "setup/_source_form.html" %}</div>
+        </details>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <div class="grid gap-3 lg:grid-cols-2 mt-5 items-start">
+        {% with card = cards['telegram'] %}{% include "setup/_block.html" %}{% endwith %}
+        <div class="card p-4 setup-section" id="try-a-post">
+            <h3 class="font-semibold">Try a post</h3>
+            <p class="hint">Paste a post as it arrives. It is read with the source's formats, and nothing is stored.</p>
+            {% if try_post %}<p class="notice notice-info mt-2" role="status">The post from the Inbox is below. Read it to see what each format makes of it, then add or change a format under Formats.</p>{% endif %}
+            <form class="mt-3 space-y-3" method="post" action="/setup/test-parse" hx-post="/setup/test-parse" hx-target="#parsed" hx-swap="innerHTML">
+                <div>
+                    <label class="label" for="parse-source">As it would arrive through</label>
+                    <select class="input" id="parse-source" name="source">
+                        {% for entry in sources if entry.source.kind != 'seerr' %}<option value="{{ entry.source.key }}">{{ entry.source.key }}</option>{% endfor %}
+                        <option value="">no source: every format, in the file's order</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="label" for="parse-text">The post</label>
+                    <textarea class="input font-mono text-sm" rows="6" id="parse-text" name="text" spellcheck="false">{{ try_post }}</textarea>
+                </div>
+                <button class="btn btn-secondary btn-lg">Read it</button>
+            </form>
+            <div class="mt-3" id="parsed" aria-live="polite"></div>
+        </div>
+    </div>
+</section>
+
+<section class="setup-section" id="providers" aria-labelledby="h-providers">
+    <h2 class="setup-title" id="h-providers">Providers</h2>
+    <p class="hint">Trackers you have an account on. They are written in the config file; here you see their state and renew a session. What is shown comes from what the app recorded: a tracker is only asked when you press Check now.</p>
+    <div class="grid gap-3 lg:grid-cols-2 mt-3 items-start">
+        {% for p in providers %}
+        {# The banner and Activity link here. A session that is missing or was refused
+           puts "Paste new cookies" first and open: that is the fix, Check now only asks. #}
+        <div class="card p-4 setup-section" id="provider-{{ p.key }}">
+            <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <h3 class="font-semibold font-mono">{{ p.key }}</h3>
+                {% if p.paused %}
+                <span class="state state-bad"><span aria-hidden="true">&#10007;</span>Paused: {{ p.paused.reason }}. Nothing is sent for another {{ p.paused.minutes }} min.</span>
+                {% elif p.cookie and not p.cookie.set %}
+                <span class="state state-warn"><span aria-hidden="true">&#9888;</span>No session: its cookie is not set</span>
+                {% else %}
+                <span class="state state-ok"><span aria-hidden="true">&#10003;</span>No cooldown open</span>
+                {% endif %}
+            </div>
+            <dl class="kv mt-2">
+                <dt>Address</dt><dd class="font-mono">{{ p.address }}{% if p.aliases %} <span class="font-sans text-muted">also</span> {{ p.aliases|join(', ') }}{% endif %}</dd>
+                <dt>Session</dt>
+                <dd>{% if p.auth == 'prowlarr' %}from the Prowlarr indexer signed in there{% elif p.auth == 'cookie_file' %}a cookie file{% else %}a username and a password ({{ 'password set' if p.password else 'password not set' }}){% endif %}</dd>
+                {% if p.cookie %}
+                <dt>Cookie</dt>
+                <dd>{% if p.cookie.set %}<span class="state state-ok"><span aria-hidden="true">&#10003;</span>set</span>, written {{ p.cookie.age }}{% else %}<span class="state state-bad"><span aria-hidden="true">&#10007;</span>not set</span>{% endif %}
+                    <span class="block font-mono text-muted">{{ p.cookie.path }}</span></dd>
+                {% endif %}
+                <dt>Own search</dt><dd>{{ 'none: Prowlarr only' if p.search == 'none' else p.search }}</dd>
+                <dt>Thank</dt><dd>{{ 'after each download' if p.thank else 'off' }}</dd>
+                <dt>Keep-alive</dt><dd>{{ 'every ' ~ p.keep_alive ~ ' min' if p.keep_alive else 'off' }}</dd>
+            </dl>
+            {% if p.renew %}{{ cookie_form(p, true) }}{% endif %}
+            <div class="flex flex-wrap items-center gap-2 mt-3">
+                <button type="button" class="btn btn-secondary btn-lg" hx-post="/setup/providers/{{ p.key }}/check" hx-target="#check-{{ p.key }}" hx-swap="innerHTML">Check now</button>
+                <span class="text-sm" id="check-{{ p.key }}" role="status"></span>
+            </div>
+            {% if p.links %}
+            <details class="fold mt-2">
+                <summary>Link patterns<span class="text-sm font-normal text-muted">{{ p.links|length }}</span></summary>
+                <ul class="space-y-3 pb-2">
+                    {% for link in p.links %}
+                    <li>
+                        <code class="break-all">{{ link.pattern }}</code>
+                        <ul class="mt-1 space-y-1 text-sm">
+                            {% for ex in link.examples %}
+                            <li><span class="state state-ok"><span aria-hidden="true">&#10003;</span>reads id {{ ex.id }}</span> in <span class="break-all font-mono">{{ ex.url }}</span>, fetches <span class="break-all font-mono">{{ ex.download }}</span></li>
+                            {% endfor %}
+                        </ul>
+                    </li>
+                    {% endfor %}
+                </ul>
+            </details>
+            {% endif %}
+            {% if p.cookie and not p.renew %}{{ cookie_form(p, false) }}{% endif %}
+        </div>
+        {% else %}
+        <p class="card p-4 text-muted lg:col-span-2">No provider. With Prowlarr alone a search still works; a provider adds the exact torrent a post links to, and a direct search when Prowlarr finds nothing. The shipped <code>config.example.yaml</code> has a block to copy for each kind of tracker software.</p>
+        {% endfor %}
+    </div>
+    {% if providers %}
+    <div class="card p-4 mt-3">
+        <h3 class="font-semibold">Try a link</h3>
+        <p class="hint">Paste a tracker link from a post. It says which provider it belongs to and what its patterns read. Nothing is sent.</p>
+        <form class="flex flex-wrap items-end gap-2 mt-3" method="post" action="/setup/providers/link" hx-post="/setup/providers/link" hx-target="#link-result" hx-swap="innerHTML">
+            <div class="grow min-w-0 basis-64">
+                <label class="label" for="link-url">Link</label>
+                <input class="input font-mono" id="link-url" name="url" inputmode="url" autocapitalize="none" spellcheck="false">
+            </div>
+            <button class="btn btn-secondary btn-lg">Read it</button>
+        </form>
+        <div class="mt-3 text-sm break-words" id="link-result" role="status"></div>
+    </div>
+    {% endif %}
+</section>
+
+<section class="setup-section" id="integrations" aria-labelledby="h-integrations">
+    <h2 class="setup-title" id="h-integrations">Integrations</h2>
+    <p class="hint">Services you run. A key is shown as set or not set, never as its value; leave the field empty to keep it.</p>
+    {{ saved_note('integrations') }}
+    <div class="grid gap-3 lg:grid-cols-2 mt-3 items-start">
+        {% for card in integrations %}{% include "setup/_block.html" %}{% endfor %}
+    </div>
+</section>
+
+<section class="setup-section" id="formats" aria-labelledby="h-formats">
+    <h2 class="setup-title" id="h-formats">Formats</h2>
+    <p class="hint">How a post is read: word lists, not code. A post is tried against its source's formats in order, and the first that reads a title and a type wins. Quality, source, size, group, season and year are read by the app for every format.</p>
+    {{ saved_note('formats') }}
+    <div class="space-y-2 mt-3">
+        {% for form in formats %}
+        <details class="fold card px-4 pb-1" {% if form.errors or form.problems or form.parsed %}open{% endif %}>
+            <summary><span class="font-mono">{{ form.vals.key }}</span><span class="badge badge-unknown">{{ form.vals.kind }}</span></summary>
+            <div class="pb-3">{% include "setup/_format_form.html" %}</div>
+        </details>
+        {% else %}
+        <p class="card p-4 text-muted">No format: every post is read as a release name on its first line.</p>
+        {% endfor %}
+        {% include "setup/_format_new.html" %}
+    </div>
+</section>
+
+<section class="setup-section" id="deliver" aria-labelledby="h-deliver">
+    <h2 class="setup-title" id="h-deliver">Deliver</h2>
+    {{ saved_note('deliver') }}
+    <div class="mt-3">{% with card = cards['deliver'], untitled = true %}{% include "setup/_block.html" %}{% endwith %}</div>
+</section>
+
+<section class="setup-section" id="notify" aria-labelledby="h-notify">
+    <h2 class="setup-title" id="h-notify">Notify</h2>
+    {{ saved_note('notify') }}
+    <div class="mt-3">{% with card = cards['notify'], untitled = true %}{% include "setup/_block.html" %}{% endwith %}</div>
+</section>
+
+<section class="setup-section" id="web" aria-labelledby="h-web">
+    <h2 class="setup-title" id="h-web">Web</h2>
+    {{ saved_note('web') }}
+    <div class="mt-3">{% with card = cards['web'], untitled = true %}{% include "setup/_block.html" %}{% endwith %}</div>
+</section>
+
+</div>
+{% endblock %}
