@@ -1,0 +1,59 @@
+language: "en-US"
+tone_instructions: "Be direct and concise. No fluff."
+
+reviews:
+  profile: "chill"
+  high_level_summary: true
+  collapse_walkthrough: true
+  poem: false
+  sequence_diagrams: false
+  suggested_reviewers: false
+  auto_review:
+    enabled: true
+    drafts: false
+    ignore_title_keywords:
+      - "WIP"
+      - "DO NOT REVIEW"
+  path_filters:
+    - "!**/__pycache__/**"
+    - "!**/*.pyc"
+    - "!docs/images/**"
+    - "!src/vettarr/web/static/app.css"
+  path_instructions:
+    - path: "src/vettarr/**"
+      instructions: |
+        Check async/await usage and that HTTP clients and sessions are closed.
+        No secret, password, cookie or token value may reach a log line.
+        Tracker calls must respect the guard and cooldowns.
+    - path: "alembic/versions/**"
+      instructions: |
+        Migrations only add: new tables and nullable columns. No renames or drops.
+    - path: "Dockerfile*"
+      instructions: |
+        Base image tags are pinned, never :latest.
+  tools:
+    gitleaks:
+      enabled: true
+    ruff:
+      enabled: true
+    hadolint:
+      enabled: true
+    actionlint:
+      enabled: true
+    yamllint:
+      enabled: true
+    markdownlint:
+      enabled: true
+    shellcheck:
+      enabled: true
+
+chat:
+  auto_reply: true
+
+knowledge_base:
+  learnings:
+    scope: "local"
+  code_guidelines:
+    enabled: true
+    filePatterns:
+      - "AGENTS.md"
