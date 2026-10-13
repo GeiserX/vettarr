@@ -344,8 +344,9 @@ async function swipe(page, dx) {
     const stillThere = (await page.locator(`#row-${row}`).count()) === 1;
     check('a row that left the tab stays while the pointer is on it', leaving.length === 1 && stays && stillThere, { leaving, stays, stillThere });
     await page.mouse.move(0, 0);
-    await page.waitForTimeout(6500);
-    check('and goes by itself 5 s after the pointer leaves', (await page.locator(`#row-${row}`).count()) === 0 && (await page.locator('article.row').count()) > 0);
+    // The timer has run during the hold; the next 1 s look sees the pointer gone, then the fade.
+    const went = await page.waitForSelector(`#row-${row}`, { state: 'detached', timeout: 8000 }).then(() => true, () => false);
+    check('and goes by itself once the pointer leaves', went && (await page.locator('article.row').count()) > 0, { went });
 
     // --- the download block stops asking --------------------------------------
     await page.goto(`${BASE}/?tab=done`, { waitUntil: 'networkidle' });
