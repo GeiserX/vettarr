@@ -1,5 +1,6 @@
 // The layout's behaviour: toasts, the confirm dialog, the theme toggle, keys and swipe,
-// the slide-over and the selection. The rest is htmx; this file stays under 150 lines.
+// the slide-over and the selection, and the shelf that fits the screen. The rest is
+// htmx; this file stays under 215 lines.
 (function () {
   'use strict';
   const root = document.documentElement;
@@ -76,10 +77,9 @@
   });
 
   // --- theme ------------------------------------------------------------------
-  // No stored choice: the system's. The toggle stores the other one (<head> sets it before paint).
+  // Dark unless the stored choice is light. The toggle stores the other one (<head> sets it before paint).
   function dark() {
-    const stored = root.dataset.theme;
-    return stored ? stored === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
+    return root.dataset.theme !== 'light';
   }
   function label() {
     const button = document.getElementById('theme-toggle');
@@ -146,5 +146,67 @@
   document.addEventListener('htmx:afterSettle', (e) => {
     if (e.detail.target.id === 'drawer-body' && !modal()) document.getElementById('drawer').showModal();
     selection(e);
+    sweep();
   });
+
+  // --- a row that left the open tab -----------------------------------------
+  // After an action a row says where its item went, then goes 5 s later, so the queue
+  // clears as it is worked. The pointer or the focus on it holds it. When the last row
+  // goes the list is read again: the next page's items, or the empty state.
+  function sweep() {
+    document.querySelectorAll('.row-left:not([data-going])').forEach((row) => {
+      row.dataset.going = '';
+      setTimeout(function go() {
+        if (row.matches(':hover, :focus-within')) return setTimeout(go, 1000);
+        row.classList.add('row-going');
+        setTimeout(() => {
+          row.remove();
+          const url = new URL(location.href);
+          url.searchParams.delete('page');
+          if (document.querySelector('.rows') && !document.querySelector('.rows .row')) {
+            history.replaceState(null, '', url);
+            htmx.ajax('GET', url.pathname + url.search, { target: '#inbox-list', select: '#inbox-list', swap: 'outerHTML' });
+          }
+        }, 400);
+      }, 5000);
+    });
+  }
+
+  // --- the shelf fits the screen ------------------------------------------------
+  // A page is the whole lines of posters that fit between the top of the shelf and the
+  // pager, never a cut line. A phone (two columns) holds no full line under its chrome:
+  // there a page is five lines and scrolls. Only the browser knows that number: it
+  // measures the shelf, keeps it in the `per` cookie the server reads, and when
+  // the list it got was sized for another screen reads it again, keeping the first item in
+  // sight. Never while a row is ticked or leaving. Measured on load and when the window
+  // changes size, never after a swap: a list sized here cannot ask to be sized again.
+  function fit() {
+    const rows = document.querySelector('.rows[data-per]');
+    if (!rows || !rows.querySelector('.row')) return;
+    const style = getComputedStyle(rows);
+    const columns = style.gridTemplateColumns.split(' ').length;
+    const gap = parseFloat(style.rowGap) || 0;
+    const line = Math.max(...[...rows.querySelectorAll('.row')].map((r) => r.offsetHeight));
+    const nav = document.querySelector('.nav-links');
+    const floor = nav && getComputedStyle(nav).position === 'fixed' ? nav.getBoundingClientRect().top : window.innerHeight;
+    const room = floor - (rows.getBoundingClientRect().top + window.scrollY) - 5 * parseFloat(getComputedStyle(root).fontSize);
+    const lines = Math.max(columns <= 2 ? 5 : 1, Math.floor((room + gap) / (line + gap)));
+    const per = Math.min(120, columns * lines);
+    document.cookie = 'per=' + per + '; path=/; max-age=31536000; SameSite=Lax';
+    const built = Number(rows.dataset.per);
+    if (per === built || (!document.querySelector('.pager') && rows.childElementCount <= per)) return;
+    if (document.querySelector('input[name="ids"]:checked, .row-left')) return;
+    const url = new URL(location.href);
+    const page = Math.floor(((Number(url.searchParams.get('page')) || 1) - 1) * built / per) + 1;
+    if (page > 1) url.searchParams.set('page', page); else url.searchParams.delete('page');
+    history.replaceState(null, '', url);
+    htmx.ajax('GET', url.pathname + url.search, { target: '#inbox-list', select: '#inbox-list', swap: 'outerHTML' });
+  }
+  let sized = null;
+  window.addEventListener('resize', () => {
+    clearTimeout(sized);
+    sized = setTimeout(fit, 250);
+  });
+  // This script is deferred: the page is parsed and laid out, htmx is loaded and sets itself up first.
+  document.addEventListener('DOMContentLoaded', fit);
 })();

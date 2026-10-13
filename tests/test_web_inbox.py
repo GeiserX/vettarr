@@ -544,36 +544,41 @@ class InboxPageTests(PageCase):
             ("/?tab=needs", False, "Needs you", 18), ("/?tab=waiting", True, "Waiting for data", 6),
             ("/?tab=no-release", False, "No release", 4), ("/?tab=done", False, "Decided", 29), ("/?tab=all", False, "All", 60),
         ])
-        tab, filters, page_number = self.load_inbox.await_args.args
+        tab, filters, page_number, _per = self.load_inbox.await_args.args
         self.assertEqual((tab.key, filters, page_number), ("waiting", cards.Filters(), 1))
 
     def test_a_row_shows_what_the_plan_lists(self) -> None:
+        # The shelf: a poster with the verdict stamped on its corner, then the
+        # title, a byline and the reason. Size, releases and the guide are the
+        # item's, one tap away.
         item = self.rows.searched
         self.inbox([item])
         row = self.row_of(self.get("/").text, item.id)
         self.assertIn(f'<img class="poster" src="{item.content_check.poster_url}" alt=""', row)
         self.assertRegex(row, rf'<a class="tap" href="/item/{item.id}"[^>]*>{re.escape(esc(item.title))}</a>')
-        self.assertIn(f"({item.year})", row)
-        self.assertIn(f"<span>{item.size_text}</span>", row)
+        self.assertIn(f"<span>{item.year}</span>", row)
+        self.assertIn(f'<span class="badge badge-{item.media_type.value.lower()}">', row)
         # The open tab already says "Needs you": every row repeating it was noise.
-        self.assertNotIn('<span class="badge badge-warn">Needs you</span>', row)
-        self.assertIn('<span class="badge badge-warn">Policy: review</span>', row)
-        best = item.torrent_searches[0].prowlarr_results[0]
-        self.assertIn(f'<span class="release-title" title="{best["title"]}">{best["title"]}</span>', row)
-        self.assertIn(f'{best["seeders"]} seeders', row)
+        self.assertNotIn(">Needs you</span>", row)
+        # The verdict is a mark and a word; a screen reader hears "Policy: review".
+        self.assertIn('<span class="stamp stamp-warn"><span class="sr-only">Policy: </span>review</span>', row)
 
-    def test_a_rating_pill_says_its_word_beside_its_colour(self) -> None:
+    def test_a_poster_missing_is_the_type_s_tile_not_a_broken_image(self) -> None:
+        item = self.rows.one(_S.PARSE_FAILED)
+        self.inbox([item])
+        row = self.row_of(self.get("/?tab=all").text, item.id)
+        self.assertNotIn("<img", row)
+        self.assertRegex(row, r'<span class="poster poster-none" aria-hidden="true"><svg [^>]*aria-hidden="true">')
+
+    def test_a_row_says_its_reason_in_words_once(self) -> None:
         item = self.rows.violent
         self.inbox([item])
         row = self.row_of(self.get("/").text, item.id)
-        self.assertIn('<li class="pill pill-severe">Violence: severe</li>', row)
-        # A row shows what is rated above none; five pills wrapped to three lines on a phone.
-        shown = re.findall(r'<li class="pill pill-(none|mild|moderate|severe)">\w+: \1</li>', row)
-        self.assertEqual(shown, [s for s in shown if s != "none"])
-        self.assertEqual(len(shown), sum(1 for _, s in self.rows.card(item).pills if s != "none"))
         # The reason in words, once: no rule tag beside the signal that says the same.
         self.assertIn("Violence (IMDb): severe", row)
         self.assertNotIn('<span class="tag">violence</span>', row)
+        # The guide's ratings are the item's: a poster with five pills under it was the noise.
+        self.assertNotIn('class="pill', row)
 
     def test_a_row_whose_guide_is_all_none_says_so_in_one_pill(self) -> None:
         card = self.rows.card(self.rows.violent)
@@ -626,7 +631,7 @@ class InboxPageTests(PageCase):
         for chosen in ('<option value="movie" selected>', '<option value="demo-group" selected>', '<option value="review" selected>'):
             self.assertIn(chosen, form)
         self.assertIn('<input type="hidden" name="tab" value="needs">', form)
-        tab, filters, page_number = self.load_inbox.await_args.args
+        tab, filters, page_number, _per = self.load_inbox.await_args.args
         self.assertEqual(filters, cards.Filters(type="movie", source="demo-group", outcome="review"))
         self.assertEqual(page_number, 3)
         # The tabs keep the filters.
@@ -677,6 +682,42 @@ class InboxPageTests(PageCase):
                 resp = self.get("/", params={"page": asked})
                 self.assertEqual(resp.status_code, 200)
                 self.assertEqual(self.load_inbox.await_args.args[2], page_number)
+
+    def test_the_page_size_is_what_the_browser_measured(self) -> None:
+        """A page was 25 rows whatever the screen: a cut line of posters, or a scroll."""
+        self.inbox([self.rows.violent])
+        for cookie, per in (("21", 21), ("28", 28), ("1", 1), ("120", 120), ("0", 25), ("121", 25), ("abc", 25),
+                            ("", 25), ("1e2", 25), ("1000", 25)):
+            with self.subTest(per=cookie):
+                self.client.cookies.set("per", cookie)
+                resp = self.get("/")
+                self.assertEqual(resp.status_code, 200)
+                self.assertEqual(self.load_inbox.await_args.args[3], per)
+        self.client.cookies.delete("per")
+        resp = self.get("/")
+        self.assertEqual(self.load_inbox.await_args.args[3], 25)
+
+    def test_the_list_says_the_size_it_was_built_with(self) -> None:
+        self.inbox([self.rows.violent], per_page=21)
+        self.assertIn('<div class="rows" data-per="21">', self.get("/").text)
+
+    def test_the_shelf_holds_the_whole_lines_that_fit_the_screen(self) -> None:
+        """The browser measures the shelf, keeps the number in a cookie and reads the list
+        again when it got one sized for another screen. What it does is measured in
+        a browser by scripts/checks.js; this is the text of the script."""
+        script = (WEB_DIR / "static" / "app.js").read_text()
+        self.assertIn("const columns = style.gridTemplateColumns.split(' ').length;", script)
+        self.assertIn("const lines = Math.max(columns <= 2 ? 5 : 1, Math.floor((room + gap) / (line + gap)));", script)
+        self.assertIn("const per = Math.min(120, columns * lines);", script)
+        self.assertIn("document.cookie = 'per=' + per + '; path=/; max-age=31536000; SameSite=Lax';", script)
+        # Sized for this screen already, or everything is on the page: nothing to read again.
+        self.assertIn("if (per === built || (!document.querySelector('.pager') && rows.childElementCount <= per)) return;", script)
+        # Never under a ticked or a leaving row.
+        self.assertIn("if (document.querySelector('input[name=\"ids\"]:checked, .row-left')) return;", script)
+        # The first item in sight stays the first.
+        self.assertIn("const page = Math.floor(((Number(url.searchParams.get('page')) || 1) - 1) * built / per) + 1;", script)
+        self.assertIn("window.addEventListener('resize'", script)
+        self.assertIn("document.addEventListener('DOMContentLoaded', fit);", script)
 
     def test_on_a_phone_every_tab_is_in_sight(self) -> None:
         # The text of the stylesheet only. That the open tab is inside a 390 px
@@ -1549,6 +1590,19 @@ class AuditPageTests(PageCase):
         with acting("approve", ok("Queued it.")):
             resp = self.post(f"/inbox/{approved.id}/approve", headers={**HTMX, "HX-Current-URL": "http://testserver/?tab=all"})
         self.assertNotIn("row-left", self.row_of(resp.text, approved.id))
+
+    def test_a_row_that_left_its_tab_goes_after_five_seconds(self) -> None:
+        """Approved rows stayed on the shelf, faded, in the way of the next ones."""
+        script = (WEB_DIR / "static" / "app.js").read_text()
+        self.assertIn("document.querySelectorAll('.row-left:not([data-going])')", script)
+        self.assertIn("if (row.matches(':hover, :focus-within')) return setTimeout(go, 1000);", script)
+        self.assertIn("row.classList.add('row-going');", script)
+        self.assertIn("}, 5000);", script)
+        # The last row gone: the list is read again, from its first page.
+        self.assertIn("url.searchParams.delete('page');", script)
+        self.assertIn("htmx.ajax('GET', url.pathname + url.search, { target: '#inbox-list', select: '#inbox-list', swap: 'outerHTML' });", script)
+        css = (WEB_DIR / "static" / "src" / "app.css").read_text()
+        self.assertRegex(css, r"\.row\.row-going \{\s*opacity: 0;\s*transition: opacity 0\.4s;")
 
     def test_reject_in_a_row_is_outlined(self) -> None:
         self.inbox([self.rows.violent])

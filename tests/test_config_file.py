@@ -477,7 +477,7 @@ class ImportEnvTests(unittest.TestCase):
         self.assertEqual(load_text(render(env, EXAMPLE.read_text()), "i", env).policy.auto_approve, "off")
 
     def test_a_url_with_a_password_is_a_reference(self) -> None:
-        env = {**FAKE_ENV, "PROWLARR_URL": "http://user:pw-in-url@prowlarr:9696"}
+        env = {**FAKE_ENV, "PROWLARR_URL": "http://user:pw-in-url@prowlarr:9696"}  # trufflehog:ignore (fake credential)
         text = render(env, EXAMPLE.read_text())
         self.assertNotIn("pw-in-url", text)
         self.assertIn("${PROWLARR_URL}", text)

@@ -811,7 +811,7 @@ class LayoutTests(WebCase):
 
     def test_the_script_stays_small(self) -> None:
         lines = (WEB_DIR / "static" / "app.js").read_text().splitlines()
-        self.assertLessEqual(len(lines), 150)
+        self.assertLessEqual(len(lines), 215)
 
     def test_every_reject_goes_through_the_confirm_dialog(self) -> None:
         # The item page, the Inbox row, the Review card and the bulk bar.
@@ -871,16 +871,18 @@ class LayoutTests(WebCase):
         self.assertNotIn("northwind", page.text)
         self.failing.assert_not_awaited()
 
-    def test_the_dark_tokens_are_the_same_for_the_system_and_for_the_toggle(self) -> None:
+    def test_dark_is_the_default_and_light_names_the_same_tokens(self) -> None:
         css = (WEB_DIR / "static" / "src" / "app.css").read_text()
-        by_system = re.search(r':root:not\(\[data-theme="light"\]\) \{(.*?)\}', css, re.S).group(1)
-        by_toggle = re.search(r':root\[data-theme="dark"\] \{(.*?)\}', css, re.S).group(1)
-        tokens = lambda block: sorted(line.strip() for line in block.splitlines() if line.strip())  # noqa: E731
-        self.assertEqual(tokens(by_system), tokens(by_toggle))
-        light = re.search(r"^:root \{(.*?)\}", css, re.S | re.M).group(1)
+        dark = re.search(r"^:root \{(.*?)\}", css, re.S | re.M).group(1)
+        light = re.search(r'^:root\[data-theme="light"\] \{(.*?)\}', css, re.S | re.M).group(1)
+        self.assertIn("color-scheme: dark;", dark)
+        self.assertIn("color-scheme: light;", light)
         names = lambda block: sorted(re.findall(r"(--[\w-]+):", block))  # noqa: E731
-        self.assertEqual(names(light), names(by_toggle))
-        self.assertGreater(len(names(light)), 20)
+        self.assertEqual(names(dark), names(light))
+        self.assertGreater(len(names(dark)), 20)
+        # The system setting is never consulted: the toggle is the only way to light.
+        self.assertNotIn("prefers-color-scheme", css)
+        self.assertNotIn("prefers-color-scheme", (WEB_DIR / "static" / "app.js").read_text())
 
     def test_the_stylesheet_honours_reduced_motion_and_shows_focus(self) -> None:
         css = (WEB_DIR / "static" / "src" / "app.css").read_text()

@@ -80,6 +80,8 @@ async function signIn(browser, base, password) {
             reducedMotion: 'reduce',
             storageState: target.startsWith('/login') ? undefined : session,
           });
+          // The app is dark unless localStorage says light; the <head> script reads it before paint.
+          await context.addInitScript((scheme) => { try { localStorage.setItem('theme', scheme); } catch (_) { /* no storage */ } }, colorScheme);
           const page = await context.newPage();
           const file = path.join(opts.out, `${slug(target)}-${viewport.width}-${colorScheme}.png`);
           const response = await page.goto(opts.base + target, { waitUntil: 'networkidle' });

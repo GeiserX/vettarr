@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 450" preserveAspectRatio="xMidYMid slice">
+  <rect width="300" height="450" fill="#b4232c"/>
+  <g fill="none" stroke="#f6d6a8" stroke-width="10" opacity="0.9">
+    <circle cx="150" cy="190" r="40"/><circle cx="150" cy="190" r="80" opacity="0.7"/><circle cx="150" cy="190" r="120" opacity="0.45"/><circle cx="150" cy="190" r="160" opacity="0.25"/>
+  </g>
+  <rect y="360" width="300" height="90" fill="#2a0b0f"/>
+</svg>

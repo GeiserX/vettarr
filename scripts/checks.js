@@ -18,8 +18,11 @@
 // ticked rows show the action bar and the reject dialog counts them, a
 // refused bulk action says so and one with no session goes to the login page,
 // a 409 from a row's button is a toast, the title opens the item in the
-// slide-over, and the download block stops asking once an answer says the
-// download is over and the panel around it reads the item again.
+// slide-over, the download block stops asking once an answer says the
+// download is over and the panel around it reads the item again, and the
+// shelf holds the whole lines of posters that fit the screen with the pager
+// in sight on a desk, follows the window when it changes size, and is five
+// lines on a phone.
 // Review: each key clicks its button (never under a dialog, never with Ctrl),
 // a held key acts once (A, S, and Enter on a focused button), Grab is offered
 // only with a release to take, ? folds the legend, J and K move, and on a
@@ -67,6 +70,32 @@ async function hold(page, pattern, status, body) {
 
 const toasts = (page) => page.evaluate(() => [...document.querySelectorAll('.toasts .toast')].map((t) => t.innerText.trim()));
 const settle = (page) => page.waitForTimeout(300);
+// The shelf as the screen holds it: whole lines, the pager in sight, no room for one more line.
+const fitting = (page) => page.evaluate(() => {
+  const rows = document.querySelector('.rows');
+  const tiles = [...rows.querySelectorAll('.row')];
+  const style = getComputedStyle(rows);
+  const columns = style.gridTemplateColumns.split(' ').length;
+  const gap = parseFloat(style.rowGap);
+  const nav = document.querySelector('.nav-links');
+  const floor = getComputedStyle(nav).position === 'fixed' ? nav.getBoundingClientRect().top : window.innerHeight;
+  const bottom = Math.max(...tiles.map((t) => t.getBoundingClientRect().bottom)) + window.scrollY;
+  const line = Math.max(...tiles.map((t) => t.offsetHeight));
+  const pager = document.querySelector('.pager');
+  const shown = tiles.length;
+  const built = Number(rows.dataset.per);
+  const full = shown === built;
+  return {
+    shown, built, columns, lines: Math.ceil(shown / columns), pager: !!pager, floor: Math.round(floor),
+    whole: shown % columns === 0 || !full,
+    fits: bottom + 80 <= floor + 1,
+    pagerInSight: !pager || pager.getBoundingClientRect().bottom + window.scrollY <= floor + 1,
+    noRoomForMore: !full || bottom + gap + line + 80 > floor,
+    cookie: /(^|; )per=\d+/.test(document.cookie),
+    ok: (full || !pager) && shown % columns === 0 || !full,
+  };
+});
+const fitsWell = (f) => f.whole && f.fits && f.pagerInSight && f.noRoomForMore && f.cookie && (f.shown === f.built || !f.pager);
 const drawerOpen = (page) => page.evaluate(() => document.getElementById('drawer').open);
 const reviewing = (page) => page.evaluate(() => {
   // hx-get, not href: the href carries ?from=review for the item page's back link.
@@ -262,6 +291,13 @@ async function swipe(page, dx) {
       });
       check(`on a phone the open tab is in sight on ${tab}, with the four others`, strip.open[0] >= 0 && strip.open[1] <= strip.width && strip.inSight === 5 && strip.tabs === 5 && strip.short >= 44, strip);
     }
+    // --- the Inbox on a phone: the shelf fits above the nav bar ----------------
+    await page.goto(`${BASE}/?tab=needs`, { waitUntil: 'networkidle' });
+    await settle(page);
+    const phoneShelf = await fitting(page);
+    // Under a phone's chrome no full line fits: a page is five whole lines and scrolls.
+    check('on a phone the shelf is five whole lines of two', phoneShelf.shown === phoneShelf.built && phoneShelf.columns === 2 && phoneShelf.lines === 5 && phoneShelf.whole && phoneShelf.cookie, phoneShelf);
+
     await page.goto(`${BASE}/?tab=needs&type=movie`, { waitUntil: 'networkidle' });
     const titles = await page.evaluate(() => Math.round(Math.min(...[...document.querySelectorAll('.row-title a')].map((a) => a.getBoundingClientRect().height))));
     check('on a phone a title is a target 44 px tall', titles >= 44, titles);
@@ -269,9 +305,13 @@ async function swipe(page, dx) {
     // --- the Inbox: a row's own button ---------------------------------------
     const row = await page.getAttribute('article.row[data-id]', 'data-id');
     const inline = await hold(page, '**/inbox/*/approve', 409, BUSY);
+    // On a phone a row's actions are a sheet its poster's corner button opens.
+    await page.click(`#row-${row} .tile-more`);
+    check('on a phone the poster\'s corner opens the actions as a sheet', await page.evaluate((id) => document.getElementById(`actions-${id}`).matches(':popover-open'), row));
     await page.click(`#row-${row} [hx-post="/inbox/${row}/approve"]`);
     await settle(page);
     check('a 409 from a row is a toast and the row stays', inline.length === 1 && (await toasts(page)).some((t) => t.includes(BUSY)) && (await page.locator(`#row-${row}`).count()) === 1, { inline, toasts: await toasts(page) });
+    await page.keyboard.press('Escape');
 
 
     // --- the Inbox: several rows ---------------------------------------------
@@ -325,6 +365,24 @@ async function swipe(page, dx) {
     await settle(page);
     const closed = await page.evaluate(() => ({ open: document.getElementById('drawer').open, left: document.getElementById('drawer-body').childElementCount }));
     check('Escape closes the slide-over and empties it', !closed.open && closed.left === 0, closed);
+
+    // --- the Inbox: a row that left the tab goes by itself ----------------------
+    // The server answers an approval with the row in its "left" state; here a stand-in.
+    await page.unroute('**/inbox/*/approve');
+    const gone = `<article id="row-${row}" class="row row-left" data-id="${row}"><div class="tile-text"><h2 class="row-title"><a href="/item/${row}">left</a></h2></div></article>`;
+    const leaving = await hold(page, `**/inbox/${row}/approve`, 200, gone);
+    await page.click(`#row-${row} .tile-more`);
+    await page.click(`#row-${row} [hx-post="/inbox/${row}/approve"]`);
+    await settle(page);
+    const stays = await page.evaluate((id) => document.getElementById(`row-${id}`).classList.contains('row-left'), row);
+    await page.hover(`#row-${row}`);
+    await page.waitForTimeout(6000);
+    const stillThere = (await page.locator(`#row-${row}`).count()) === 1;
+    check('a row that left the tab stays while the pointer is on it', leaving.length === 1 && stays && stillThere, { leaving, stays, stillThere });
+    await page.mouse.move(0, 0);
+    // The timer has run during the hold; the next 1 s look sees the pointer gone, then the fade.
+    const went = await page.waitForSelector(`#row-${row}`, { state: 'detached', timeout: 8000 }).then(() => true, () => false);
+    check('and goes by itself once the pointer leaves', went && (await page.locator('article.row').count()) > 0, { went });
 
     // --- the download block stops asking --------------------------------------
     await page.goto(`${BASE}/?tab=done`, { waitUntil: 'networkidle' });
@@ -398,6 +456,22 @@ async function swipe(page, dx) {
     // --- Review with a keyboard -------------------------------------------------
     const desk = await browser.newContext({ ...DESK, colorScheme: 'light', reducedMotion: 'reduce' });
     const board = await signIn(desk);
+
+    // --- the Inbox on a desk: the shelf fits the screen and follows the window ----
+    // A first visit has no cookie: the list comes sized for the default, the script
+    // measures and reads it again. Then a taller window holds more lines.
+    const shelf = await desk.newPage();
+    await shelf.goto(`${BASE}/?tab=needs`, { waitUntil: 'networkidle' });
+    await settle(shelf);
+    const short = await fitting(shelf);
+    check('on a desk the shelf holds the whole lines that fit, with the pager in sight', fitsWell(short) && short.shown !== 25, short);
+    await shelf.setViewportSize({ width: 1280, height: 1400 });
+    const grew = await shelf.waitForFunction((was) => Number(document.querySelector('.rows').dataset.per) !== was, short.built, { timeout: 5000 }).then(() => true, () => false);
+    await shelf.waitForLoadState('networkidle');
+    await settle(shelf);
+    const tall = await fitting(shelf);
+    check('a taller window holds more whole lines, read again without a reload', grew && fitsWell(tall) && tall.lines > short.lines && tall.shown > short.shown, { grew, short, tall });
+    await shelf.close();
     await board.goto(`${BASE}/review`, { waitUntil: 'networkidle' });
     const current = (await reviewing(board)).split('/').pop();
     const keyed = await hold(board, '**/review/**', 409, BUSY);

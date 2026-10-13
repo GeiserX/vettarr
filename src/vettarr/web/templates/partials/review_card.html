@@ -15,12 +15,17 @@
            hx-get="/review?after={{ card.id }}" hx-target="#review-card" hx-swap="outerHTML">Next <kbd class="kbd">J</kbd> <span aria-hidden="true">&rsaquo;</span></a>
     </div>
 
-    <div class="review-body card">
-        {{ bits.poster(card, "review-poster") }}
+    <div class="review-body">
+        <div class="review-art">
+            {{ bits.poster(card, "review-poster") }}
+        </div>
         <div class="review-main">
-            <h2 class="review-title">{{ card.title }}{% if card.item.year %} <span class="text-muted font-normal">({{ card.item.year }})</span>{% endif %}</h2>
+            <h2 class="review-title">{{ card.title }}{% if card.item.year %} <span class="review-year">({{ card.item.year }})</span>{% endif %}</h2>
             <p class="row-meta">{{ bits.meta(card) }}</p>
-            <p class="row-verdict">{{ bits.chips(card) }}</p>
+            <div class="verdict-line">
+                {{ bits.stamp(card) }}
+                <span class="badge badge-{{ card.status[1] }}">{{ card.status[0] }}</span>
+            </div>
             {% if card.reasons %}
             <ul class="reasons">
                 {% for line in card.reasons %}<li>{{ bits.reason(line) }}</li>{% endfor %}
@@ -61,7 +66,8 @@
 </section>
 {% else %}
 <section id="review-card" class="review" aria-label="Review">
-    <div class="card empty">
+    <div class="empty empty-shelf">
+        <div class="empty-posters" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
         <p class="font-semibold">Nothing to review.</p>
         <p class="text-muted mt-1">Every item that needed you is decided. New ones show up here, oldest first.</p>
         <a class="btn btn-secondary mt-4" href="/">Open the Inbox</a>

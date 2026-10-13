@@ -12,8 +12,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: peter-evans/dockerhub-description@v4
+      - uses: peter-evans/dockerhub-description@v5
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
           repository: drumsergio/vettarr
+          short-description: ${{ github.event.repository.description }}
+          # Turns the README's relative Markdown links into GitHub URLs on Docker Hub.
+          enable-url-completion: true
