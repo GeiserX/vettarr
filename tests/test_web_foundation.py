@@ -811,7 +811,7 @@ class LayoutTests(WebCase):
 
     def test_the_script_stays_small(self) -> None:
         lines = (WEB_DIR / "static" / "app.js").read_text().splitlines()
-        self.assertLessEqual(len(lines), 175)
+        self.assertLessEqual(len(lines), 215)
 
     def test_every_reject_goes_through_the_confirm_dialog(self) -> None:
         # The item page, the Inbox row, the Review card and the bulk bar.

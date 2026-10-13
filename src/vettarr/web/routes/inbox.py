@@ -34,11 +34,19 @@ def _page(value: str | None) -> int:
     return 1
 
 
+def _per(value: str | None) -> int:
+    """The page size the browser measured (the ``per`` cookie app.js sets): the
+    whole lines of posters its screen holds. Anything else is the default."""
+    if value and value.isascii() and value.isdigit() and len(value) < 4 and 1 <= int(value) <= cards.PER_MAX:
+        return int(value)
+    return cards.PER_PAGE
+
+
 @router.get("/", response_class=HTMLResponse)
 async def index(request: Request, tab: str | None = None, page: str | None = None):
     current = cards.tab_of(tab)
     filters = cards.Filters.read(request.query_params)
-    inbox = await cards.load_inbox(current, filters, _page(page))
+    inbox = await cards.load_inbox(current, filters, _page(page), _per(request.cookies.get("per")))
     return templates.TemplateResponse(request, "inbox.html", {
         "tab": current,
         "tabs": cards.TABS,

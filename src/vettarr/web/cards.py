@@ -46,7 +46,10 @@ from vettarr.models import (
 )
 from vettarr.web import ui, words
 
+#: The page size when the browser has not said what fits its screen (app.js
+#: keeps that in the ``per`` cookie), and the most it may ask for.
 PER_PAGE = 25
+PER_MAX = 120
 _S = ItemStatus
 
 # --- tabs and filters ---------------------------------------------------------
@@ -840,6 +843,8 @@ class Inbox:
     page: int
     pages: int
     sources: list[str]
+    #: The page size the list was built with: app.js reads it again when the screen fits another.
+    per_page: int = PER_PAGE
 
     @property
     def bulk_reject_confirm(self) -> str:
@@ -918,7 +923,7 @@ async def load_inbox(tab: Tab, filters: Filters, page: int = 1, per_page: int = 
             select(MediaItem.source_key).where(MediaItem.source_key.is_not(None))
             .distinct().order_by(MediaItem.source_key)
         )).scalars().all()
-    return Inbox(cards, counts, total, page, pages, list(sources))
+    return Inbox(cards, counts, total, page, pages, list(sources), per_page)
 
 
 async def load_rows(ids: Sequence[int], filters: Filters) -> tuple[list[Card], dict[str, int]]:
