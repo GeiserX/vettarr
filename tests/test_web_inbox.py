@@ -1555,6 +1555,19 @@ class AuditPageTests(PageCase):
             resp = self.post(f"/inbox/{approved.id}/approve", headers={**HTMX, "HX-Current-URL": "http://testserver/?tab=all"})
         self.assertNotIn("row-left", self.row_of(resp.text, approved.id))
 
+    def test_a_row_that_left_its_tab_goes_after_five_seconds(self) -> None:
+        """Approved rows stayed on the shelf, faded, in the way of the next ones."""
+        script = (WEB_DIR / "static" / "app.js").read_text()
+        self.assertIn("document.querySelectorAll('.row-left:not([data-going])')", script)
+        self.assertIn("if (row.matches(':hover, :focus-within')) return setTimeout(go, 1000);", script)
+        self.assertIn("row.classList.add('row-going');", script)
+        self.assertIn("}, 5000);", script)
+        # The last row gone: the list is read again, from its first page.
+        self.assertIn("url.searchParams.delete('page');", script)
+        self.assertIn("htmx.ajax('GET', url.pathname + url.search, { target: '#inbox-list', select: '#inbox-list', swap: 'outerHTML' });", script)
+        css = (WEB_DIR / "static" / "src" / "app.css").read_text()
+        self.assertRegex(css, r"\.row\.row-going \{\s*opacity: 0;\s*transition: opacity 0\.4s;")
+
     def test_reject_in_a_row_is_outlined(self) -> None:
         self.inbox([self.rows.violent])
         row = self.row_of(self.get("/").text, self.rows.violent.id)

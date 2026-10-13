@@ -330,6 +330,23 @@ async function swipe(page, dx) {
     const closed = await page.evaluate(() => ({ open: document.getElementById('drawer').open, left: document.getElementById('drawer-body').childElementCount }));
     check('Escape closes the slide-over and empties it', !closed.open && closed.left === 0, closed);
 
+    // --- the Inbox: a row that left the tab goes by itself ----------------------
+    // The server answers an approval with the row in its "left" state; here a stand-in.
+    await page.unroute('**/inbox/*/approve');
+    const gone = `<article id="row-${row}" class="row row-left" data-id="${row}"><div class="tile-text"><h2 class="row-title"><a href="/item/${row}">left</a></h2></div></article>`;
+    const leaving = await hold(page, `**/inbox/${row}/approve`, 200, gone);
+    await page.click(`#row-${row} .tile-more`);
+    await page.click(`#row-${row} [hx-post="/inbox/${row}/approve"]`);
+    await settle(page);
+    const stays = await page.evaluate((id) => document.getElementById(`row-${id}`).classList.contains('row-left'), row);
+    await page.hover(`#row-${row}`);
+    await page.waitForTimeout(6000);
+    const stillThere = (await page.locator(`#row-${row}`).count()) === 1;
+    check('a row that left the tab stays while the pointer is on it', leaving.length === 1 && stays && stillThere, { leaving, stays, stillThere });
+    await page.mouse.move(0, 0);
+    await page.waitForTimeout(6500);
+    check('and goes by itself 5 s after the pointer leaves', (await page.locator(`#row-${row}`).count()) === 0 && (await page.locator('article.row').count()) > 0);
+
     // --- the download block stops asking --------------------------------------
     await page.goto(`${BASE}/?tab=done`, { waitUntil: 'networkidle' });
     const live = await page.evaluate(() => {

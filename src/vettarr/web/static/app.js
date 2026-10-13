@@ -1,5 +1,5 @@
 // The layout's behaviour: toasts, the confirm dialog, the theme toggle, keys and swipe,
-// the slide-over and the selection. The rest is htmx; this file stays under 150 lines.
+// the slide-over and the selection. The rest is htmx; this file stays under 175 lines.
 (function () {
   'use strict';
   const root = document.documentElement;
@@ -145,5 +145,29 @@
   document.addEventListener('htmx:afterSettle', (e) => {
     if (e.detail.target.id === 'drawer-body' && !modal()) document.getElementById('drawer').showModal();
     selection(e);
+    sweep();
   });
+
+  // --- a row that left the open tab -----------------------------------------
+  // After an action a row says where its item went, then goes 5 s later, so the queue
+  // clears as it is worked. The pointer or the focus on it holds it. When the last row
+  // goes the list is read again: the next page's items, or the empty state.
+  function sweep() {
+    document.querySelectorAll('.row-left:not([data-going])').forEach((row) => {
+      row.dataset.going = '';
+      setTimeout(function go() {
+        if (row.matches(':hover, :focus-within')) return setTimeout(go, 1000);
+        row.classList.add('row-going');
+        setTimeout(() => {
+          row.remove();
+          const url = new URL(location.href);
+          url.searchParams.delete('page');
+          if (document.querySelector('.rows') && !document.querySelector('.rows .row')) {
+            history.replaceState(null, '', url);
+            htmx.ajax('GET', url.pathname + url.search, { target: '#inbox-list', select: '#inbox-list', swap: 'outerHTML' });
+          }
+        }, 400);
+      }, 5000);
+    });
+  }
 })();
