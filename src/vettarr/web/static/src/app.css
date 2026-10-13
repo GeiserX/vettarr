@@ -1454,6 +1454,11 @@
   /* An item an action moved out of the open tab fades, and says where it went. */
   .row.row-left .tile-art { opacity: 0.45; filter: grayscale(1); }
   .row.row-left .row-meta { display: none; }
+  /* Then it goes (app.js), with a short fade. */
+  .row.row-going {
+    opacity: 0;
+    transition: opacity 0.4s;
+  }
 
   /* The actions. Where there is a pointer: over the poster's lower half, on
      hover or when the keyboard is inside the tile. */
