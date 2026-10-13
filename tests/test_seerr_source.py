@@ -1636,10 +1636,14 @@ class HookBodyLimitTests(HookCase):
         with mock.patch.object(hooks, "MAX_BODY_BYTES", 80 * 4096):
             self.assertEqual(len(run(hooks._body(Pieces()))), 80 * 4096)
 
-    def test_a_body_nested_past_reading_is_not_json(self) -> None:
+    def test_a_body_nested_thousands_deep_changes_nothing(self) -> None:
         deep = b"[" * 20000 + b"]" * 20000
         resp = self.http.post(HOOK, content=deep, headers={"Authorization": SECRET})
-        self.assertEqual(resp.status_code, 400)
+        # Python 3.12 gives up on it with a RecursionError, which is "not JSON";
+        # 3.14 parses it and the list is a call that says nothing. Either way
+        # the app neither crashes nor asks Seerr anything.
+        self.assertIn(resp.status_code, (200, 400))
+        self.assertEqual(self.seerr.calls, [])
 
     def test_a_request_id_that_is_no_number_is_ignored(self) -> None:
         resp = self.send({"notification_type": "MEDIA_PENDING", "request_id": "²"})

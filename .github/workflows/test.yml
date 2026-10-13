@@ -14,6 +14,11 @@ permissions:
 jobs:
   unittest:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # 3.12 is the floor pyproject.toml declares; 3.14 is what the image runs.
+        python: ["3.12", "3.14"]
+    name: unittest (${{ matrix.python }})
     steps:
       - uses: actions/checkout@v7
 
@@ -23,11 +28,11 @@ jobs:
           enable-cache: false
 
       - name: Install Python
-        run: uv python install 3.12
+        run: uv python install ${{ matrix.python }}
 
       - name: Install the project
         run: |
-          uv venv --python 3.12
+          uv venv --python ${{ matrix.python }}
           uv pip install -e .
 
       - name: Tests
