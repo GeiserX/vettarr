@@ -55,7 +55,7 @@
     </div>
 
     {% if inbox.cards %}
-    <div class="rows">
+    <div class="rows" data-per="{{ inbox.per_page }}">
         {% for card in inbox.cards %}{% include "partials/inbox_row.html" %}{% endfor %}
     </div>
     {% else %}
