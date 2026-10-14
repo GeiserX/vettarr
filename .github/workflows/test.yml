@@ -37,3 +37,17 @@ jobs:
 
       - name: Tests
         run: .venv/bin/python -m unittest discover -s tests -v
+
+  # The image is built only on a tag, so a Dockerfile change could reach a
+  # release untested: the python:3.14 bump (PR 1) kept a 3.12 path and the
+  # v1.0.1 build failed. This builds it on every PR, for amd64, and pushes nothing.
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64
+          push: false
