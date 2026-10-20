@@ -16,8 +16,11 @@ RUN pip install --no-cache-dir .
 
 FROM python:3.14-slim
 
+# --only-upgrade ca-certificates: the base image's 20250419 still trusts the
+# compromised eMudhra intermediates; trixie-security distrusts them.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libxml2 libxslt1.1 \
+    && apt-get install -y --only-upgrade ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /usr/local/lib/python3.14/site-packages /usr/local/lib/python3.14/site-packages
