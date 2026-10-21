@@ -397,7 +397,7 @@ Each integration has a connection test for the Setup page. Radarr and Sonarr ans
 | `min_votes` | int | unset | Default minimum votes for voted rules. Unset falls back to `integrations.imdb_guide.min_votes`. A rule's own `min_votes` wins over both. |
 | `types` | media type → type policy | `{}` | A type not listed gets the defaults below. |
 | `types.<t>.mode` | `rules` \| `always` \| `never` | `rules` | `always`: approve without rules. `never`: always held for a person. `rules` with no rule that applies to the type holds it for a person too: nothing was checked, and `config check` warns. |
-| `types.<t>.when_data_missing` | `wait` \| `review` \| `approve` | `wait` | What happens while a rule's data is not in yet. |
+| `types.<t>.when_data_missing` | `wait` \| `review` \| `approve` | `wait` | What happens while a rule's data is not in yet, unless the rule's own `when_missing` says. |
 | `types.<t>.max_wait_hours` | int | `24` | After this long waiting, the item goes to review. |
 | `lists` | name → words | `{}` | Named lists for `matches_any`, `any_of` and `none_of`. A rule that points at an empty list never hits, and `config check` warns. |
 | `rules` | list | `[]` | Evaluated in order. |
@@ -413,6 +413,7 @@ A **rule** checks one signal with one operator against one value, or combines se
 | `check` | signal name | required unless the rule is a group (`all`, `any`, `not`) | Must be in the catalogue below. An unknown name is an error that lists every known signal. A title signal may be written with a `tmdb.` prefix (`tmdb.keyword`) and a books signal with `book.` (`book.subject`). |
 | one operator | see below | required | Exactly one, and one the signal takes. |
 | `on_hit` | `approve` \| `review` \| `reject` \| `notify` | `review` | `reject` never deletes the post. |
+| `when_missing` | `wait` \| `review` \| `approve` | the type's `when_data_missing` | What this rule's missing data does to the item: `review` holds it for a person now, `wait` waits for the data, `approve` holds nothing (the missing data is still recorded as a reason). On a combined rule it covers the whole rule. |
 | `split_vote` | 0 < x ≤ 1 | none | Voted signals only: also hit when this share of the votes sits at or above the threshold, even if a milder label won. |
 | `min_votes` | int | none | Voted signals only. |
 | `all`, `any`, `not` | conditions | none | In place of `check` and its operator: the rule combines conditions. See below. |
@@ -453,7 +454,7 @@ A condition whose data is missing is neither true nor false. A combined conditio
 | `any` | any condition is true | every condition is false | otherwise |
 | `not` | its condition is false | its condition is true | its condition is missing |
 
-A combined rule that is missing is treated as any rule whose data is missing: the type's `when_data_missing` decides. Its reason names the checks that hit, joined with `;`, or the first check whose data is missing. It applies to the media types all its checks share; a rule whose checks share none is an error, and so is `types` naming a type outside them. The Policy page shows a combined rule's YAML as it loads (its comments left out), moves and removes it, and keeps it as written when it saves; its conditions are edited in the file. The content check's keyword and genre flags read single-check rules only.
+A combined rule that is missing is treated as any rule whose data is missing: its `when_missing`, else the type's `when_data_missing`, decides. Its reason names the checks that hit, joined with `;`, or the first check whose data is missing. It applies to the media types all its checks share; a rule whose checks share none is an error, and so is `types` naming a type outside them. The Policy page shows a combined rule's YAML as it loads (its comments left out), moves and removes it, and keeps it as written when it saves; its conditions are edited in the file. The content check's keyword and genre flags read single-check rules only.
 
 #### Scopes
 
@@ -491,6 +492,20 @@ policy:
 | `skip` | base rule ids | `[]` | Base rules this scope does not check. Every id must be a base rule's. |
 
 A scope's own `approve` rule runs before the base rules, so it can end the walk before them: that is how a scope is looser. A scope's `reject` or `review` rule is collected with the base ones: that is how it is stricter. To replace the base rules entirely, `skip` all of them. `sender` is the Telegram user id of a post, or the Seerr user id of a request. A `source` value in `when`, like one in a rule, must be the key of a configured source, so a source a scope names cannot be removed from the setup page.
+
+A worked case: Telegram posts with no data are approved, while Seerr requests still wait for it.
+
+```yaml
+scopes:
+  - id: telegram
+    name: Telegram posts with no data are approved
+    when: {check: source, any_of: [group, inbox]}
+    types:
+      movie: {when_data_missing: approve}
+      series: {when_data_missing: approve}
+```
+
+A concert posted to the `group` source matches on TMDB but has no IMDb parents guide votes: every `imdb.*` rule lacks its data, nothing hits, and under this scope missing data approves, so the item is approved at once with the missing data and the scope as its reasons. A hit (severe violence with enough votes, an adult certification) still reviews or rejects, and a duplicate, a post with no title or a wrong TMDB match still goes to a person: those are findings, not missing data. A Seerr request matches no scope and waits as the base policy says. To let only some rules' data be missing, give those rules `when_missing: approve` instead.
 
 Every decision made under a scope ends with a reason of kind `scope` naming it. The Policy page shows the `scopes` block as it loads (comments left out) and keeps it as written when it saves; scopes are edited in the file. The content check's keyword and genre flags read the base rules only.
 
@@ -552,8 +567,8 @@ The engine is [`checker/policy.py`](../src/vettarr/checker/policy.py), a pure fu
 4. An item with no title goes to a person. When a rule reads the TMDB record or IMDb data (a title signal, an `imdb.*` signal, `status`, `episode_count` or `in_library`), a TMDB match that is not the title the post asked for (another year, a sequel, a remake) goes to a person too: that data would be another title's.
 5. The rules that apply to the type: the scope's own first, then the base rules it does not skip, each in file order. `reject` and `review` hits are all collected; a `notify` hit is recorded and changes nothing; the first `approve` hit ends the walk, but only when no earlier rule hit or lacked its data. A rule that combines conditions (`all`, `any`, `not`) hits when the combination is true; it lacks its data when the combination cannot be settled without a missing part.
 6. Any `reject` hit rejects. Otherwise any `review` hit reviews. Otherwise an `approve` hit approves.
-7. Otherwise, if a rule's data is missing, or its integration is off (`unavailable`), the type's `when_data_missing` decides: `approve`, `review`, or `wait`, re-checked hourly until `max_wait_hours` have passed since the item arrived, and then review.
-8. Otherwise nothing hit: approve.
+7. Otherwise, a rule whose data is missing, or whose integration is off (`unavailable`), holds the item as its `when_missing` says, by default the type's `when_data_missing`: any such rule saying `review` reviews; otherwise any saying `wait` waits, re-checked hourly until `max_wait_hours` have passed since the item arrived, and then reviews; a rule saying `approve` holds nothing, and its missing data is recorded as a reason.
+8. Otherwise nothing holds the item: approve.
 
 The data a type waits for is exactly what its rules read, under the scope that decides the item: the scope is settled from the item's source, sender and clock before anything is fetched. A policy with no `keyword` rule never waits for TMDB keywords, and the IMDb guide is fetched only while a rule reads an `imdb.*` signal. Lookups that cost a request (Jellyfin, qBittorrent, a search, the linked `.torrent`) run only for the signals a rule of the item's type reads, and never while `auto_approve` is `off`. A lookup that fails leaves its own signals missing and no other's. An item that waits is decided again every hour, so the costly answers are kept between decisions: a `.torrent`'s file list for good, a search for six hours, the download client's free space for five minutes.
 

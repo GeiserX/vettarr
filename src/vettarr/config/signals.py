@@ -136,7 +136,7 @@ def canonical(name: str) -> str | None:
 SCOPE_SIGNALS: tuple[str, ...] = ("source", "sender", "time_window", "post_age_hours")
 
 # Which integration feeds each group. A rule whose integration is not enabled
-# sees missing data, and the type's when_data_missing applies.
+# sees missing data, and its when_missing (else the type's when_data_missing) applies.
 GROUP_NEEDS: dict[str, str] = {
     "title": "tmdb",
     "parents_guide": "imdb_guide",

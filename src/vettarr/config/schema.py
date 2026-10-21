@@ -557,6 +557,9 @@ class Rule(Condition):
     # Empty means every type the rule's signals apply to.
     types: list[MediaType] = Field(default_factory=list)
     on_hit: Literal["approve", "review", "reject", "notify"] = "review"
+    # What the rule's missing data does to the item; unset, the type's
+    # when_data_missing says. On a combined rule it covers the whole rule.
+    when_missing: Literal["wait", "review", "approve"] | None = None
 
     @property
     def media_types(self) -> tuple[str, ...]:

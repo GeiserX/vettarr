@@ -29,10 +29,12 @@ How a decision is reached, in order:
    cannot be settled without a missing part.
 6. Any reject hit rejects; any review hit reviews; an approve hit approves.
 7. Otherwise, a rule whose data is missing (or whose integration is off)
-   hands the item to the type's ``when_data_missing``: ``approve``,
-   ``review``, or ``wait`` until ``max_wait_hours`` have passed since the
-   item arrived, and then review.
-8. Otherwise nothing hit, and the item is approved.
+   is held by its ``when_missing``, by default the type's
+   ``when_data_missing``: any such rule saying ``review`` reviews; otherwise
+   any saying ``wait`` waits, until ``max_wait_hours`` have passed since the
+   item arrived, and then reviews; a rule saying ``approve`` holds nothing,
+   and its missing data is recorded as a reason.
+8. Otherwise nothing holds the item, and it is approved.
 
 The data a type needs is exactly what its rules read: a policy with no
 keyword rule never waits for keywords. A scope's ``when`` reads only the
@@ -592,6 +594,8 @@ def evaluate(
     min_votes_default = policy.min_votes if policy.min_votes is not None else default_min_votes
     blocks: list[tuple[str, Reason]] = []
     gaps: list[Reason] = []
+    # What each gap asks for: the rule's when_missing, else the type's.
+    held: set[str] = set()
     notes: list[Reason] = []
     approved_by: Reason | None = None
     for rule in rules:
@@ -600,6 +604,7 @@ def evaluate(
             value = signals.get(short.check) if short is not None else None
             off = isinstance(value, Mapping) and "unavailable" in value
             gaps.append(Reason(UNAVAILABLE if off else MISSING, rule.id, text))
+            held.add(rule.when_missing or tp.when_data_missing)
             continue
         if not hit:
             continue
@@ -621,10 +626,11 @@ def evaluate(
     if approved_by is not None:
         return done(APPROVE, approved_by, *notes)
     if gaps:
-        if tp.when_data_missing == "approve":
-            return done(APPROVE, *gaps, *notes)
-        if tp.when_data_missing == "review":
+        # A review now beats a wait, which ends in review at the latest.
+        if "review" in held:
             return done(REVIEW, *gaps, *notes)
+        if "wait" not in held:
+            return done(APPROVE, *gaps, *notes)
         created = getattr(item, "created_at", None)
         if isinstance(created, datetime) and now is not None:
             if _as_utc(now) - _as_utc(created) >= timedelta(hours=tp.max_wait_hours):
