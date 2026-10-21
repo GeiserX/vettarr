@@ -338,6 +338,19 @@ policy:
     #   check: keyword
     #   matches_any: unwanted
     #   on_hit: reject
+    # A rule can combine checks with all, any and not, nested as deep as needed:
+    # - id: old-and-rough
+    #   name: Pre-2000 films with rough content
+    #   all:
+    #     - check: year
+    #       at_most: 1999
+    #     - any:
+    #         - check: imdb.violence
+    #           at_least: moderate
+    #           split_vote: 0.40
+    #         - check: imdb.nudity
+    #           at_least: moderate
+    #   on_hit: review
 
 # --- Release words: how a post names a language, subtitles, a whole season ----
 # Read by the audio_language, subtitles and season_complete signals. These are

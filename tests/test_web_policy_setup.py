@@ -872,6 +872,78 @@ class PolicySaveTests(PolicyCase):
         self.assertEqual(self.file().policy.auto_approve, "off")
 
 
+COMBINED_RULE = """\
+    - id: old-and-rough
+      name: Old and rough
+      all:
+        - {check: year, at_most: 1999}   # before the rating boards caught up
+        - any:
+            - check: imdb.violence
+              at_least: moderate
+              split_vote: 0.40
+            - not: {check: original_language, any_of: [en]}
+      on_hit: review
+"""
+
+
+class PolicyCombinedRuleTests(PolicyCase):
+    """A rule that combines checks is shown as its YAML, moved, removed, and saved back as written."""
+
+    CONFIG = CONFIG.replace("web:\n", COMBINED_RULE + "web:\n")
+
+    def test_a_combined_rule_is_shown_as_its_yaml_and_saved_back_as_written(self) -> None:
+        page = self.get("/policy").text
+        data = forms(page, "/policy")[0]
+        self.assertEqual((data["rule-2-group"], data["rule-2-id"]), (["1"], ["old-and-rough"]))
+        self.assertNotIn("rule-2-check", data)
+        shown = unescape(re.search(r'<pre[^>]*aria-label="Rule 3[^"]*"[^>]*>(.*?)</pre>', page, re.S).group(1))
+        for line in ("name: Old and rough", "all:", "- check: year", "at_most: 1999", "split_vote: 0.4", "not:",
+                     "check: original_language"):
+            with self.subTest(line=line):
+                self.assertIn(line, shown)
+        self.assertIn("A combined rule is edited in config.yaml and is kept as written when you save.", text_of(page))
+        resp = self.send()
+        self.assertNotIn("Nothing was saved", resp.text)
+        self.assertIn("HX-Trigger", resp.headers)
+        self.unchanged()
+        # A change elsewhere leaves it as written too, comment and all.
+        self.send(auto_approve="on")
+        self.assertIn(COMBINED_RULE, self.path.read_text())
+        self.assertEqual(self.file().policy.rules[2], self.running.policy.rules[2])
+
+    def test_a_combined_rule_can_be_moved_and_removed(self) -> None:
+        def ids(text: str) -> list[str]:
+            return [v[0] for k, v in forms(text, "/policy")[0].items() if re.fullmatch(r"rule-\d+-id", k)]
+
+        moved = self.send("/policy/edit", op="up:2")
+        self.assertEqual(ids(moved.text), ["unwanted-keywords", "old-and-rough", "violence"])
+        self.assertIn("Old and rough", moved.text)
+        self.assertIn("at_most: 1999", moved.text)
+        self.unchanged()
+        self.post("/policy", data=forms(moved.text, "/policy")[0], headers=HTMX)
+        self.assertEqual([r.id for r in self.file().policy.rules], ["unwanted-keywords", "old-and-rough", "violence"])
+        self.assertEqual(self.file().policy.rules[1], self.running.policy.rules[2])
+        removed = self.send("/policy/edit", op="remove-rule:1")
+        self.assertEqual(ids(removed.text), ["unwanted-keywords", "violence"])
+        self.post("/policy", data=forms(removed.text, "/policy")[0], headers=HTMX)
+        self.assertEqual([r.id for r in self.file().policy.rules], ["unwanted-keywords", "violence"])
+        self.assertNotIn("old-and-rough", self.path.read_text())
+
+    def test_focus_lands_on_a_combined_rule_that_takes_a_removed_rule_s_place(self) -> None:
+        removed = self.send("/policy/edit", op="remove-rule:1")
+        name = re.search(r'<span[^>]*id="rule-1-name"[^>]*>', removed.text).group(0)
+        self.assertIn('tabindex="-1"', name)
+        self.assertIn("autofocus", name)
+
+    def test_a_combined_rule_the_file_no_longer_has_refuses_the_save(self) -> None:
+        # The page was opened, then the rule was renamed in config.yaml by hand.
+        resp = self.send(rule__3__group="1", rule__3__id="renamed-by-hand")
+        self.assertIn("Nothing saved", resp.headers.get("HX-Trigger", ""))
+        self.assertIn("rule renamed-by-hand is a combined rule config.yaml no longer has; reload the page",
+                      unescape(resp.text))
+        self.unchanged()
+
+
 class PolicyPreviewTests(PolicyCase):
     def test_preview_runs_the_form_s_policy_over_the_last_200_and_writes_nothing(self) -> None:
         impact = Impact(

@@ -45,9 +45,15 @@ def reason(text: str) -> str:
 
     ``imdb.violence: parents guide not fetched (not listed yet)`` is
     ``Waiting for IMDb's parents guide (not listed yet)``; ``imdb.nudity:
-    severe`` is ``Nudity (IMDb): severe``. Text that names no signal is as it was.
+    severe`` is ``Nudity (IMDb): severe``. A rule that combines checks joins
+    their texts with ``; ``, and each is worded on its own. Text that names no
+    signal is as it was.
     """
-    found = _LEADS.match(text or "")
+    return "; ".join(_part(part) for part in (text or "").split("; "))
+
+
+def _part(text: str) -> str:
+    found = _LEADS.match(text)
     if found is None or found[1] not in SIGNALS:
         return text
     name, rest = found[1], found[2]

@@ -121,7 +121,12 @@ def guide_signals(
 
 
 def title_rule_hits(policy: Any, media_type: str, tmdb: TMDBResult | None, cfg: Any) -> list[str]:
-    """The keyword and genre rules that hit on a TMDB record, for the content check."""
+    """The keyword and genre rules that hit on a TMDB record, for the content check.
+
+    Only a rule that is one check is read. A rule that combines conditions
+    has no ``check`` of its own and is left out: this flag is advisory, and
+    the decision itself still checks it.
+    """
     snapshot = title_signals(tmdb, tmdb_on=cfg.integrations.enabled("tmdb"))
     hits: list[str] = []
     for rule in applicable_rules(policy, media_type):

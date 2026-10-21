@@ -44,12 +44,18 @@ from vettarr.checker.imdb_client import ParentsGuide
 from vettarr.checker.jellyfin_client import JellyfinClient
 from vettarr.checker.policy import (
     APPROVE,
+    IDENTITY,
     LEGACY,
+    MISSING,
     REJECT,
     REVIEW,
+    RULE,
+    UNAVAILABLE,
     WAIT,
     Reason,
     act,
+    applicable_rules,
+    check_condition,
     check_rule,
     compare,
     evaluate,
@@ -296,6 +302,121 @@ class DecisionOrderTests(unittest.TestCase):
             {"genre", "keyword", "certification", "imdb.nudity", "imdb.violence", "imdb.frightening"},
         )
         self.assertEqual(needed_signals(cfg.policy, "magazine"), set())
+
+
+BIG = {"check": "size_gb", "at_least": 10}
+OLD = {"check": "year", "at_most": 1999}
+FEW_SEEDERS = {"check": "seeders", "at_most": 2}
+
+
+def combined(signals, min_votes=0, **fields):
+    return check_condition(rule(**fields), signals, {}, min_votes)
+
+
+class CombinedConditionTests(unittest.TestCase):
+    """A rule that combines checks with all, any and not, over True, False and missing."""
+
+    def test_all_is_false_when_any_child_is_false_even_with_a_missing_one(self) -> None:
+        # The year is missing and the size is not big: no year can make it true.
+        self.assertEqual(combined({"size_gb": 4}, all=[OLD, BIG]), (False, ""))
+        self.assertEqual(combined({"size_gb": 4}, all=[BIG, OLD]), (False, ""))
+
+    def test_all_is_missing_when_no_child_is_false_and_one_is_missing(self) -> None:
+        self.assertEqual(combined({"size_gb": 12}, all=[BIG, OLD]), (None, "year: no data"))
+        self.assertEqual(combined({"size_gb": 12, "year": 1990}, all=[BIG, OLD]), (True, "size_gb: 12; year: 1990"))
+
+    def test_any_is_true_when_one_child_hits_even_with_a_missing_one(self) -> None:
+        self.assertEqual(combined({"size_gb": 12}, any=[OLD, BIG]), (True, "size_gb: 12"))
+        self.assertEqual(combined({"size_gb": 12}, any=[BIG, OLD]), (True, "size_gb: 12"))
+
+    def test_any_is_false_only_when_every_child_is_false(self) -> None:
+        self.assertEqual(combined({"size_gb": 4, "year": 2005}, any=[OLD, BIG]), (False, ""))
+        self.assertEqual(combined({"size_gb": 4}, any=[OLD, BIG]), (None, "year: no data"))
+
+    def test_not_flips_true_and_false_and_keeps_missing(self) -> None:
+        self.assertEqual(combined({"size_gb": 4}, **{"not": BIG}), (True, "size_gb: 4"))
+        self.assertEqual(combined({"size_gb": 12}, **{"not": BIG}), (False, ""))
+        self.assertEqual(combined({}, **{"not": BIG}), (None, "size_gb: no data"))
+        # A check that is false with nothing to say, and a group, are named.
+        english = {"check": "original_language", "any_of": ["en"]}
+        self.assertEqual(combined({"original_language": ["fr"]}, **{"not": english}), (True, "not original_language"))
+        self.assertEqual(
+            combined({"size_gb": 4, "year": 1990}, **{"not": {"all": [BIG, OLD]}}), (True, "not all")
+        )
+
+    def test_nested_groups_evaluate_depth_first_with_a_leaf_min_votes_and_split_vote(self) -> None:
+        fields = {"all": [OLD, {"any": [
+            {"check": "imdb.violence", "at_least": "severe", "min_votes": 5},
+            {"check": "imdb.nudity", "at_least": "moderate", "split_vote": 0.4},
+        ]}]}
+        self.assertEqual([leaf.check for leaf in rule(**fields).leaves()], ["year", "imdb.violence", "imdb.nudity"])
+        thin_violence = {"severity": "severe", "votes": 8, "breakdown": {}}
+        split_nudity = {"severity": "mild", "votes": 90, "breakdown": {"mild": 50, "moderate": 40}}
+        # The violence check's own min_votes (5) counts its 8 votes; the default (20) does not.
+        self.assertEqual(
+            combined({"year": 1990, "imdb.violence": thin_violence}, min_votes=20, **fields),
+            (True, "year: 1990; imdb.violence: severe"),
+        )
+        # The nudity check's split_vote hits on a mild label with 44% of the votes moderate.
+        self.assertEqual(
+            combined({"year": 1990, "imdb.violence": {**thin_violence, "votes": 2}, "imdb.nudity": split_nudity},
+                     min_votes=20, **fields),
+            (True, "year: 1990; imdb.nudity: labelled mild, but 44% of the votes are moderate or worse"),
+        )
+        self.assertEqual(
+            combined({"year": 2005, "imdb.violence": thin_violence}, min_votes=20, **fields), (False, "")
+        )
+
+    def test_a_group_hit_names_the_children_that_hit_and_a_missing_group_names_the_missing_child(self) -> None:
+        hits = policy({"id": "any", "any": [BIG, OLD, FEW_SEEDERS]})
+        decision = evaluate(movie(), {"size_gb": 12, "year": 2005, "seeders": 1}, hits)
+        self.assertEqual((decision.outcome, decision.reasons), (REVIEW, (Reason(RULE, "any", "size_gb: 12; seeders: 1"),)))
+        guide = {"check": "imdb.violence", "at_least": "severe"}
+        waits = policy({"id": "all", "all": [BIG, guide]})
+        decision = evaluate(movie(), {"size_gb": 12, "imdb.violence": {"missing": "parents guide not fetched"}}, waits)
+        self.assertEqual(
+            (decision.outcome, decision.reasons),
+            (WAIT, (Reason(MISSING, "all", "imdb.violence: parents guide not fetched"),)),
+        )
+        decision = evaluate(movie(), {"size_gb": 12, "imdb.violence": {"unavailable": "imdb_guide"}}, waits)
+        self.assertEqual(decision.reasons[0].kind, UNAVAILABLE)
+
+    def test_a_group_rule_applies_to_the_types_its_conditions_share(self) -> None:
+        guide = {"check": "imdb.violence", "at_least": "severe"}
+        p = policy({"id": "g", "all": [BIG, guide]})
+        self.assertEqual(p.rules[0].media_types, ("movie", "series"))
+        self.assertEqual(applicable_rules(p, "ebook"), [])
+        self.assertEqual(evaluate(movie(media_type="ebook"), {"size_gb": 12}, p).reasons[0].kind, "type")
+        only = policy({"id": "g", "types": ["series"], "all": [BIG, guide]})
+        self.assertEqual(only.rules[0].media_types, ("series",))
+        self.assertEqual(applicable_rules(only, "movie"), [])
+
+    def test_needed_signals_and_the_identity_guard_read_every_leaf(self) -> None:
+        p = policy({"id": "g", "all": [BIG, {"any": [FEW_SEEDERS, {"check": "imdb.violence", "at_least": "severe"}]}]})
+        self.assertEqual(needed_signals(p, "movie"), {"size_gb", "seeders", "imdb.violence"})
+        # The guide is read by the last leaf only, and that is enough to hold a wrong match.
+        wrong = {"ok": False, "text": "TMDB matched another year"}
+        decision = evaluate(movie(), {"size_gb": 4, "_identity": wrong}, p)
+        self.assertEqual((decision.outcome, decision.reasons[0].kind), (REVIEW, IDENTITY))
+
+    def test_a_leaf_rule_decides_exactly_as_before(self) -> None:
+        cfg = policy_fixture.config()
+        severe = {"severity": "severe", "votes": 8, "breakdown": {"severe": 8}}
+        mild = {"severity": "mild", "votes": 100, "breakdown": {"mild": 50, "severe": 50}}
+        snapshots = [
+            {},
+            {"genre": [policy_fixture.FLAGGED_GENRE_ID], "keyword": ["old lighthouse keeper"]},
+            {"certification": {"US": "R", "ES": "18"}, "imdb.violence": severe, "imdb.nudity": mild},
+            {"imdb.frightening": {"missing": "parents guide not fetched"}, "subject": {"partial": ["Beekeeping"]}},
+            {"imdb.violence": {"unavailable": "imdb_guide"}, "keyword": [], "subject": ["knitting"]},
+        ]
+        for default in (0, 5, 20):
+            for n, signals in enumerate(snapshots):
+                for leaf in cfg.policy.rules:
+                    with self.subTest(default=default, snapshot=n, rule=leaf.id):
+                        min_votes = leaf.min_votes if leaf.min_votes is not None else default
+                        before = check_rule(leaf, signals.get(leaf.check), cfg.policy.lists, min_votes)
+                        self.assertEqual(check_condition(leaf, signals, cfg.policy.lists, default), before)
 
 
 class PolicyVersionTests(unittest.TestCase):

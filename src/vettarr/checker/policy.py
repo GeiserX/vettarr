@@ -18,7 +18,10 @@ How a decision is reached, in order:
 4. The rules that apply to the type, in file order. A rule whose condition is
    true *hits*: ``reject`` and ``review`` hits are all collected, ``notify``
    hits are recorded and change nothing, and the first ``approve`` hit ends
-   the walk when no earlier rule hit or lacked its data.
+   the walk when no earlier rule hit or lacked its data. A rule that combines
+   conditions (``all``, ``any``, ``not``) hits when the combination is true;
+   it lacks its data when the combination cannot be settled without a
+   missing part.
 5. Any reject hit rejects; any review hit reviews; an approve hit approves.
 6. Otherwise, a rule whose data is missing (or whose integration is off)
    hands the item to the type's ``when_data_missing``: ``approve``,
@@ -56,7 +59,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from vettarr.checker.content_rules import IDENTITY_UNCONFIRMED
-from vettarr.config.schema import Policy, Rule, TypePolicy
+from vettarr.config.schema import Condition, Policy, Rule, TypePolicy
 from vettarr.config.signals import MEDIA_TYPES, RESOLUTIONS, SEVERITIES, SIGNALS
 
 APPROVE = "approve"
@@ -258,7 +261,7 @@ def _split_cert(value: str) -> tuple[str, str]:
 Outcome = tuple[bool | None, str]
 
 
-def _check_voted(rule: Rule, value: Any, min_votes: int) -> Outcome:
+def _check_voted(rule: Condition, value: Any, min_votes: int) -> Outcome:
     name = rule.check
     if not isinstance(value, Mapping):
         return None, f"{name}: no parents guide"
@@ -281,7 +284,7 @@ def _check_voted(rule: Rule, value: Any, min_votes: int) -> Outcome:
     return False, ""
 
 
-def _check_number(rule: Rule, value: Any) -> Outcome:
+def _check_number(rule: Condition, value: Any) -> Outcome:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None, f"{rule.check}: no data"
     op, want = rule.operator, rule.value
@@ -295,13 +298,13 @@ def _check_number(rule: Rule, value: Any) -> Outcome:
     return hit, f"{rule.check}: {shown}"
 
 
-def _check_bool(rule: Rule, value: Any) -> Outcome:
+def _check_bool(rule: Condition, value: Any) -> Outcome:
     if not isinstance(value, bool):
         return None, f"{rule.check}: no data"
     return value is rule.value, f"{rule.check}: {'yes' if value else 'no'}"
 
 
-def _check_terms(rule: Rule, value: Any, lists: Mapping[str, list[str]]) -> Outcome:
+def _check_terms(rule: Condition, value: Any, lists: Mapping[str, list[str]]) -> Outcome:
     partial = isinstance(value, Mapping) and "partial" in value
     items = value["partial"] if partial else value
     if not isinstance(items, list):
@@ -331,7 +334,7 @@ def _check_terms(rule: Rule, value: Any, lists: Mapping[str, list[str]]) -> Outc
     return False, ""
 
 
-def _check_certification(rule: Rule, value: Any, lists: Mapping[str, list[str]]) -> Outcome:
+def _check_certification(rule: Condition, value: Any, lists: Mapping[str, list[str]]) -> Outcome:
     if not isinstance(value, Mapping):
         return None, "certification: no data"
     certs = {str(k).upper(): str(v) for k, v in value.items() if v}
@@ -361,7 +364,7 @@ def _check_certification(rule: Rule, value: Any, lists: Mapping[str, list[str]])
     return True, f"certification: {shown} is none of the listed"
 
 
-def _check_resolution(rule: Rule, value: Any, lists: Mapping[str, list[str]]) -> Outcome:
+def _check_resolution(rule: Condition, value: Any, lists: Mapping[str, list[str]]) -> Outcome:
     if value not in _RESOLUTION_RANK:
         return None, "resolution: no data"
     op = rule.operator
@@ -380,7 +383,7 @@ def _minutes(hhmm: str) -> int:
     return int(hours) * 60 + int(minutes)
 
 
-def _check_time(rule: Rule, value: Any) -> Outcome:
+def _check_time(rule: Condition, value: Any) -> Outcome:
     if not isinstance(value, str) or not re.fullmatch(r"\d{2}:\d{2}", value):
         return None, "time_window: no clock"
     start, end = (_minutes(v) for v in rule.value)
@@ -389,7 +392,7 @@ def _check_time(rule: Rule, value: Any) -> Outcome:
     return inside, f"time_window: {value}"
 
 
-def check_rule(rule: Rule, value: Any, lists: Mapping[str, list[str]], min_votes: int) -> Outcome:
+def check_rule(rule: Condition, value: Any, lists: Mapping[str, list[str]], min_votes: int) -> Outcome:
     """Whether one rule hits on one value: True, False, or None for missing data."""
     if isinstance(value, Mapping) and "unavailable" in value:
         if value.get("why"):
@@ -416,6 +419,60 @@ def check_rule(rule: Rule, value: Any, lists: Mapping[str, list[str]], min_votes
     return _check_terms(rule, value, lists)
 
 
+def _condition(
+    cond: Condition, signals: Mapping[str, Any], lists: Mapping[str, list[str]], min_votes_default: int
+) -> tuple[bool | None, str, Condition | None]:
+    """``check_condition``, plus the leaf whose missing data a missing outcome names."""
+    if not cond.is_group:
+        min_votes = cond.min_votes if cond.min_votes is not None else min_votes_default
+        hit, text = check_rule(cond, signals.get(cond.check), lists, min_votes)
+        return hit, text, cond if hit is None else None
+    # Every child is checked, none skipped: False settles `all` and True
+    # settles `any` whatever a missing child would say, and the text needs
+    # every child that hit.
+    outcomes = [_condition(child, signals, lists, min_votes_default) for child in cond.children]
+    first_missing = next(((text, leaf) for hit, text, leaf in outcomes if hit is None), None)
+    if cond.not_ is not None:
+        hit, text, leaf = outcomes[0]
+        if hit is None:
+            return None, text, leaf
+        if hit:
+            return False, "", None
+        child = cond.not_
+        return True, text or f"not {child.check if not child.is_group else _group_word(child)}", None
+    hits = [hit for hit, _, _ in outcomes]
+    if cond.all_ is not None:
+        if False in hits:
+            return False, "", None
+        if first_missing is None:
+            return True, "; ".join(text for _, text, _ in outcomes if text), None
+    else:
+        if True in hits:
+            return True, "; ".join(text for hit, text, _ in outcomes if hit and text), None
+        if first_missing is None:
+            return False, "", None
+    return None, *first_missing
+
+
+def _group_word(cond: Condition) -> str:
+    return "all" if cond.all_ is not None else "any" if cond.any_ is not None else "not"
+
+
+def check_condition(
+    cond: Condition, signals: Mapping[str, Any], lists: Mapping[str, list[str]], min_votes_default: int
+) -> Outcome:
+    """Whether a rule's condition holds on a snapshot: True, False, or None for missing data.
+
+    A leaf is ``check_rule`` on its own signal, with its own ``min_votes`` or
+    the default. ``all`` is True when every condition is, False when any is;
+    ``any`` is True when any condition is, False when every one is; ``not``
+    swaps True and False. Anything else is missing, and says why with the
+    first condition that is.
+    """
+    hit, text, _ = _condition(cond, signals, lists, min_votes_default)
+    return hit, text
+
+
 # --- the decision ------------------------------------------------------------
 
 
@@ -436,18 +493,14 @@ def no_rules_text(media_type: str) -> str:
 
 def applicable_rules(policy: Policy, media_type: str) -> list[Rule]:
     """The rules that read a signal of this type, in file order."""
-    return [
-        rule for rule in policy.rules
-        if media_type in (rule.types or SIGNALS[rule.check].types)
-        and media_type in SIGNALS[rule.check].types
-    ]
+    return [rule for rule in policy.rules if media_type in rule.media_types]
 
 
 def needed_signals(policy: Policy, media_type: str) -> set[str]:
     """The signals a decision about this type reads; nothing else is fetched."""
     if type_policy(policy, media_type).mode != "rules":
         return set()
-    return {rule.check for rule in applicable_rules(policy, media_type)}
+    return {leaf.check for rule in applicable_rules(policy, media_type) for leaf in rule.leaves()}
 
 
 def _as_utc(moment: datetime) -> datetime:
@@ -488,8 +541,8 @@ def evaluate(
         return done(REVIEW, Reason(IDENTITY, None, NO_TITLE))
 
     reads_title = any(
-        SIGNALS[r.check].group in ("title", "parents_guide") or r.check in _TMDB_RECORD_SIGNALS
-        for r in rules
+        SIGNALS[leaf.check].group in ("title", "parents_guide") or leaf.check in _TMDB_RECORD_SIGNALS
+        for rule in rules for leaf in rule.leaves()
     )
     identity = signals.get(META_IDENTITY)
     if reads_title and isinstance(identity, Mapping) and not identity.get("ok"):
@@ -505,10 +558,9 @@ def evaluate(
     notes: list[Reason] = []
     approved_by: Reason | None = None
     for rule in rules:
-        value = signals.get(rule.check)
-        min_votes = rule.min_votes if rule.min_votes is not None else min_votes_default
-        hit, text = check_rule(rule, value, policy.lists, min_votes)
+        hit, text, short = _condition(rule, signals, policy.lists, min_votes_default)
         if hit is None:
+            value = signals.get(short.check) if short is not None else None
             off = isinstance(value, Mapping) and "unavailable" in value
             gaps.append(Reason(UNAVAILABLE if off else MISSING, rule.id, text))
             continue

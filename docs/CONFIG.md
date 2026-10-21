@@ -402,20 +402,57 @@ Each integration has a connection test for the Setup page. Radarr and Sonarr ans
 | `lists` | name → words | `{}` | Named lists for `matches_any`, `any_of` and `none_of`. A rule that points at an empty list never hits, and `config check` warns. |
 | `rules` | list | `[]` | Evaluated in order. |
 
-A **rule** checks one signal with one operator against one value. It *hits* when that condition is true, and then `on_hit` applies.
+A **rule** checks one signal with one operator against one value, or combines several such checks (see [Combining conditions](#combining-conditions)). It *hits* when its condition is true, and then `on_hit` applies.
 
 | Field | Type | Default | Notes |
 |---|---|---|---|
 | `id` | key | required | Unique; shown as the reason. |
 | `name` | string | none | Human label. |
-| `types` | media types | `[]` = every type the signal applies to | A type the signal does not apply to is an error. |
-| `check` | signal name | required | Must be in the catalogue below. An unknown name is an error that lists every known signal. A title signal may be written with a `tmdb.` prefix (`tmdb.keyword`) and a books signal with `book.` (`book.subject`). |
+| `types` | media types | `[]` = every type the signal applies to | A type the signal does not apply to is an error. A combined rule applies to the types all its signals share. |
+| `check` | signal name | required unless the rule is a group (`all`, `any`, `not`) | Must be in the catalogue below. An unknown name is an error that lists every known signal. A title signal may be written with a `tmdb.` prefix (`tmdb.keyword`) and a books signal with `book.` (`book.subject`). |
 | one operator | see below | required | Exactly one, and one the signal takes. |
 | `on_hit` | `approve` \| `review` \| `reject` \| `notify` | `review` | `reject` never deletes the post. |
 | `split_vote` | 0 < x ≤ 1 | none | Voted signals only: also hit when this share of the votes sits at or above the threshold, even if a milder label won. |
 | `min_votes` | int | none | Voted signals only. |
+| `all`, `any`, `not` | conditions | none | In place of `check` and its operator: the rule combines conditions. See below. |
 
 Operators: `at_least`, `at_most`, `between` (`[low, high]`), `is` (true/false), `any_of`, `none_of`, `matches_any`. The last three take a list, or the name of a list under `policy.lists`. `any_of` and `none_of` compare whole values, without case or accents. `matches_any` finds a listed word or phrase inside a value as whole words, and reads punctuation as a space, so `sea monster` matches `sea-monster`.
+
+#### Combining conditions
+
+A rule may combine conditions instead of making one check. `all` takes a list and holds when every condition in it holds; `any` takes a list and holds when one does; `not` takes one condition and holds when it does not. A condition is a check (`check`, one operator, and `split_vote` or `min_votes` on a voted signal) or another `all`, `any` or `not`, nested as deep as needed. `id`, `name`, `types` and `on_hit` stay on the rule; `split_vote` and `min_votes` go on the voted check they belong to, never on the rule itself.
+
+```yaml
+rules:
+  - id: old-and-rough
+    name: Pre-2000 films with rough content
+    all:
+      - check: year
+        at_most: 1999
+      - any:
+          - check: imdb.violence
+            at_least: moderate
+            split_vote: 0.4
+          - check: imdb.nudity
+            at_least: moderate
+    on_hit: review
+  - id: not-english-and-big
+    all:
+      - not: {check: original_language, any_of: [en]}
+      - check: size_gb
+        at_least: 20
+    on_hit: reject
+```
+
+A condition whose data is missing is neither true nor false. A combined condition is settled whenever its known parts settle it:
+
+| | True | False | Missing |
+|---|---|---|---|
+| `all` | every condition is true | any condition is false | otherwise |
+| `any` | any condition is true | every condition is false | otherwise |
+| `not` | its condition is false | its condition is true | its condition is missing |
+
+A combined rule that is missing is treated as any rule whose data is missing: the type's `when_data_missing` decides. Its reason names the checks that hit, joined with `;`, or the first check whose data is missing. It applies to the media types all its checks share; a rule whose checks share none is an error, and so is `types` naming a type outside them. The Policy page shows a combined rule's YAML as it loads (its comments left out), moves and removes it, and keeps it as written when it saves; its conditions are edited in the file. The content check's keyword and genre flags read single-check rules only.
 
 Value shapes:
 
@@ -472,7 +509,7 @@ The engine is [`checker/policy.py`](../src/vettarr/checker/policy.py), a pure fu
 1. A duplicate of something already approved, downloading or done, or a second post of a title still being worked out, goes to a person.
 2. The type's `mode`: `always` approves, `never` goes to a person. A type in mode `rules` that no rule applies to goes to a person as well.
 3. An item with no title goes to a person. When a rule reads the TMDB record or IMDb data (a title signal, an `imdb.*` signal, `status`, `episode_count` or `in_library`), a TMDB match that is not the title the post asked for (another year, a sequel, a remake) goes to a person too: that data would be another title's.
-4. The rules that apply to the type, in file order. `reject` and `review` hits are all collected; a `notify` hit is recorded and changes nothing; the first `approve` hit ends the walk, but only when no earlier rule hit or lacked its data.
+4. The rules that apply to the type, in file order. `reject` and `review` hits are all collected; a `notify` hit is recorded and changes nothing; the first `approve` hit ends the walk, but only when no earlier rule hit or lacked its data. A rule that combines conditions (`all`, `any`, `not`) hits when the combination is true; it lacks its data when the combination cannot be settled without a missing part.
 5. Any `reject` hit rejects. Otherwise any `review` hit reviews. Otherwise an `approve` hit approves.
 6. Otherwise, if a rule's data is missing, or its integration is off (`unavailable`), the type's `when_data_missing` decides: `approve`, `review`, or `wait`, re-checked hourly until `max_wait_hours` have passed since the item arrived, and then review.
 7. Otherwise nothing hit: approve.

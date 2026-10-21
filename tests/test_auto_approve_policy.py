@@ -840,6 +840,27 @@ class KeywordDataTests(unittest.TestCase):
         self.assertEqual(evaluate(item, snapshot, policy, now=CREATED).outcome, APPROVE)
 
 
+class TitleFlagTests(unittest.TestCase):
+    def test_title_rule_hits_skips_a_combined_rule(self) -> None:
+        """The content check's keyword and genre flags read single-check rules; the decision reads every rule."""
+        cfg = policy_fixture.config()
+        keyword = {"check": "keyword", "matches_any": "flagged-keywords"}
+        group = Rule.model_validate({"id": "either", "any": [keyword, {"check": "genre", "any_of": [10402]}]})
+        single = Rule.model_validate({"id": "single", **keyword})
+        record = tmdb(keywords=[FLAGGED_KEYWORD])
+        only_group = cfg.policy.model_copy(update={"rules": [group]})
+        self.assertEqual(gather.title_rule_hits(only_group, "movie", record, cfg), [])
+        with_single = cfg.policy.model_copy(update={"rules": [group, single]})
+        self.assertEqual(gather.title_rule_hits(with_single, "movie", record, cfg), [f"keyword: {FLAGGED_KEYWORD}"])
+        item = policy_fixture.item(created_at=CREATED)
+        snapshot = gather.base_signals(
+            item, cfg, tmdb=record, guide=guide(), book=None, book_looked_up=False,
+            duplicate_of=None, twin_of=None, now=CREATED,
+        )
+        decision = evaluate(item, snapshot, only_group, now=CREATED)
+        self.assertEqual((decision.outcome, decision.reasons[0].rule), (REVIEW, "either"))
+
+
 class FrighteningTests(unittest.TestCase):
     """Added after the backtest: the one real content miss was a film nobody
     had flagged for sex or violence but everybody had flagged as frightening."""
