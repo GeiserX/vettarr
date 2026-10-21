@@ -12,7 +12,7 @@ from sqlalchemy import select, update
 
 from vettarr import delivery, dryrun, events, language
 from vettarr.checker.book_client import BookVerdict, check_book
-from vettarr.checker.gather import gather_signals, title_rule_hits
+from vettarr.checker.gather import context_signals, gather_signals, title_rule_hits
 from vettarr.checker.imdb_client import ParentsGuide, fetch_parents_guide
 from vettarr.checker.policy import (
     APPROVE,
@@ -444,8 +444,10 @@ async def _write_checked_result(session, item_id: int, values: dict) -> bool:
     return True
 
 
-def _needed(media_type: MediaType) -> set[str]:
-    return needed_signals(settings.config.policy, media_type.value)
+def _needed(item: MediaItem) -> set[str]:
+    """What the decision about this item reads, under the scope its source, sender and clock pick."""
+    cfg = settings.config
+    return needed_signals(cfg.policy, item.media_type.value, context_signals(item, cfg, _now()))
 
 
 async def _decide(
@@ -484,7 +486,7 @@ async def _lookup_book(item: MediaItem) -> BookVerdict | None:
         return None
     if settings.config.policy.auto_approve == "off":
         return None
-    if not _needed(item.media_type) & _CATALOGUE_SIGNALS:
+    if not _needed(item) & _CATALOGUE_SIGNALS:
         return None
     try:
         return await check_book(
@@ -684,7 +686,7 @@ async def _run_content_check(
     # The parents guide is asked for only while a rule reads it.
     cfg = settings.config
     wants_guide = cfg.integrations.enabled("imdb_guide") and any(
-        name.startswith("imdb.") for name in _needed(item.media_type)
+        name.startswith("imdb.") for name in _needed(item)
     )
     if tmdb_result.imdb_id and wants_guide:
         try:

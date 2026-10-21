@@ -181,6 +181,14 @@ class ReasonTests(unittest.TestCase):
                     [(r.label, r.count) for r in stats.top_reasons(stats.decided_from([row]))], [(lead, 1)],
                 )
 
+    def test_the_scope_a_decision_was_made_under_is_not_why_it_was_held(self) -> None:
+        rows = [
+            decision("review", 2, 1, reasons=["imdb.violence: severe", "decided under the scope kids"]),
+            decision("wait", 1, 2, reasons=["imdb.nudity: no data", "decided under the scope kids"]),
+        ]
+        found = stats.top_reasons(stats.decided_from(rows))
+        self.assertEqual([r.label for r in found], ["Violence (IMDb): severe", "Nudity (IMDb): no data"])
+
     def test_only_the_top_eight_are_listed(self) -> None:
         rows = [decision("review", 0, n, reasons=[f"reason {n}"]) for n in range(12)]
         self.assertEqual(len(stats.top_reasons(stats.decided_from(rows))), stats.TOP_REASONS)

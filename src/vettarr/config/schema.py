@@ -27,6 +27,7 @@ from vettarr.config.signals import (
     MEDIA_TYPES,
     OPERATORS,
     RESOLUTIONS,
+    SCOPE_SIGNALS,
     SEVERITIES,
     SIGNALS,
     canonical,
@@ -630,6 +631,41 @@ def _certification(value: Any) -> str:
     return value
 
 
+class TypeOverride(Block):
+    """A scope's change to a type policy: only the fields it gives change."""
+
+    mode: Literal["rules", "always", "never"] | None = None
+    when_data_missing: Literal["wait", "review", "approve"] | None = None
+    max_wait_hours: int | None = Field(default=None, ge=0)
+
+
+class Scope(Block):
+    """A policy for the items its ``when`` picks: by source, sender or clock.
+
+    ``when`` reads only what is known before any lookup. ``types`` changes the
+    base type policies field by field, ``rules`` are checked before the base
+    rules, and ``skip`` leaves base rules out by id.
+    """
+
+    id: Key
+    name: str | None = None
+    when: Condition
+    types: dict[MediaType, TypeOverride] = Field(default_factory=dict)
+    rules: list[Rule] = Field(default_factory=list)
+    skip: list[Key] = Field(default_factory=list)
+
+    @field_validator("when")
+    @classmethod
+    def _known_before_lookup(cls, value: Condition) -> Condition:
+        for leaf in value.leaves():
+            if leaf.check not in SCOPE_SIGNALS:
+                raise ValueError(
+                    f"a scope's when reads what is known before any lookup ({', '.join(SCOPE_SIGNALS)}), "
+                    f"not {leaf.check}"
+                )
+        return value
+
+
 class Policy(Block):
     auto_approve: Literal["off", "shadow", "on"] = "off"
     # Default minimum votes for voted rules; unset falls back to
@@ -638,6 +674,8 @@ class Policy(Block):
     types: dict[MediaType, TypePolicy] = Field(default_factory=dict)
     lists: dict[Key, list[Word]] = Field(default_factory=dict)
     rules: list[Rule] = Field(default_factory=list)
+    # Checked in order; the first whose `when` holds decides the item.
+    scopes: list[Scope] = Field(default_factory=list)
 
     @field_validator("auto_approve", mode="before")
     @classmethod
@@ -649,8 +687,13 @@ class Policy(Block):
             return "off"
         return value
 
-    def type_policy(self, media_type: str) -> TypePolicy:
-        return self.types.get(media_type) or TypePolicy()
+    def type_policy(self, media_type: str, scope: Scope | None = None) -> TypePolicy:
+        """The type's policy, with the fields ``scope`` gives for it in place of the base ones."""
+        base = self.types.get(media_type) or TypePolicy()
+        override = scope.types.get(media_type) if scope is not None else None
+        if override is None:
+            return base
+        return base.model_copy(update=override.model_dump(exclude_none=True))
 
 
 # --- release words ---------------------------------------------------------
@@ -841,22 +884,20 @@ def cross_check(cfg: Config) -> list[tuple[Loc, str]]:
         if provider.auth.from_ == "prowlarr" and not cfg.integrations.enabled("prowlarr"):
             errors.append((("providers", n, "auth"), "auth from prowlarr needs integrations.prowlarr enabled"))
 
-    seen_rules: set[str] = set()
-    for n, rule in enumerate(cfg.policy.rules):
-        if rule.id in seen_rules:
-            errors.append((("policy", "rules", n, "id"), f"duplicate rule id {rule.id!r}"))
-        seen_rules.add(rule.id)
-        for loc, leaf in rule.leaves_at(("policy", "rules", n)):
+    policy = cfg.policy
+    source_keys = {s.key for s in cfg.sources}
+
+    def leaf_errors(found: list[tuple[Loc, Condition]]) -> None:
+        for loc, leaf in found:
             if isinstance(leaf.value, str) and leaf.operator in ("any_of", "none_of", "matches_any"):
-                if leaf.value not in cfg.policy.lists:
-                    known = ", ".join(sorted(cfg.policy.lists)) or "none defined"
+                if leaf.value not in policy.lists:
+                    known = ", ".join(sorted(policy.lists)) or "none defined"
                     errors.append(
                         ((*loc, leaf.operator), f"no list {leaf.value!r} under policy.lists; lists: {known}")
                     )
                     continue
             if leaf.check == "source":
-                values = cfg.policy.lists[leaf.value] if isinstance(leaf.value, str) else leaf.value
-                source_keys = {s.key for s in cfg.sources}
+                values = policy.lists[leaf.value] if isinstance(leaf.value, str) else leaf.value
                 if any(str(v) not in source_keys for v in values):
                     known = ", ".join(sorted(source_keys)) or "none defined"
                     errors.append(
@@ -864,6 +905,35 @@ def cross_check(cfg: Config) -> list[tuple[Loc, str]]:
                          f"source takes the keys of configured sources ({known}); the release's origin "
                          "(CAM, TS, WEB-DL, ...) is release_source")
                     )
+
+    seen_rules: set[str] = set()
+    for n, rule in enumerate(policy.rules):
+        if rule.id in seen_rules:
+            errors.append((("policy", "rules", n, "id"), f"duplicate rule id {rule.id!r}"))
+        seen_rules.add(rule.id)
+        leaf_errors(rule.leaves_at(("policy", "rules", n)))
+    seen_scopes: set[str] = set()
+    for n, scope in enumerate(policy.scopes):
+        at = ("policy", "scopes", n)
+        if scope.id in seen_scopes:
+            errors.append(((*at, "id"), f"duplicate scope id {scope.id!r}"))
+        seen_scopes.add(scope.id)
+        leaf_errors(scope.when.leaves_at((*at, "when")))
+        own: set[str] = set()
+        for m, rule in enumerate(scope.rules):
+            if rule.id in own:
+                errors.append(((*at, "rules", m, "id"), f"duplicate rule id {rule.id!r}"))
+            elif rule.id in seen_rules:
+                errors.append(
+                    ((*at, "rules", m, "id"),
+                     f"rule id {rule.id!r} is already a base rule; a scope's rule needs its own id")
+                )
+            own.add(rule.id)
+            leaf_errors(rule.leaves_at((*at, "rules", m)))
+        for m, key in enumerate(scope.skip):
+            if key not in seen_rules:
+                known = ", ".join(r.id for r in policy.rules) or "none defined"
+                errors.append(((*at, "skip", m), f"skip names no base rule {key!r}; base rules: {known}"))
     return errors
 
 
@@ -871,38 +941,42 @@ def warnings(cfg: Config) -> list[tuple[Loc, str]]:
     """Valid but probably not what the operator meant."""
     out: list[tuple[Loc, str]] = []
     policy = cfg.policy
-    approve_first: dict[str, str] = {}
-    for n, rule in enumerate(policy.rules):
-        warned: set[str] = set()
-        for loc, leaf in rule.leaves_at(("policy", "rules", n)):
-            need = GROUP_NEEDS.get(SIGNALS[leaf.check].group)
-            if need and not cfg.integrations.enabled(need) and leaf.check not in warned:
-                warned.add(leaf.check)
-                out.append(
-                    (("policy", "rules", n), f"rule {rule.id} reads {leaf.check} but integrations.{need} is not "
-                     "enabled; the rule sees missing data")
-                )
-            if (
-                isinstance(leaf.value, str)
-                and leaf.operator in ("any_of", "none_of", "matches_any")
-                and not policy.lists.get(leaf.value)
-            ):
-                out.append(
-                    ((*loc, leaf.operator),
-                     f"rule {rule.id} points at the empty list {leaf.value!r}; it never hits")
-                )
-        types = set(rule.media_types)
-        if rule.on_hit == "approve":
-            for media_type in types:
-                approve_first.setdefault(media_type, rule.id)
-        elif rule.on_hit in ("review", "reject"):
-            skipped = sorted({approve_first[t] for t in types if t in approve_first})
-            if skipped:
-                out.append(
-                    (("policy", "rules", n),
-                     f"rule {rule.id} comes after the approve rule {', '.join(skipped)}; when that one hits "
-                     f"first, {rule.id} is never checked. Put rules that review or reject first")
-                )
+    # The base rules, then each scope's own, each list warned about on its own.
+    rule_lists = [(("policy", "rules"), policy.rules)]
+    rule_lists += [(("policy", "scopes", n, "rules"), scope.rules) for n, scope in enumerate(policy.scopes)]
+    for at, rules in rule_lists:
+        approve_first: dict[str, str] = {}
+        for n, rule in enumerate(rules):
+            warned: set[str] = set()
+            for loc, leaf in rule.leaves_at((*at, n)):
+                need = GROUP_NEEDS.get(SIGNALS[leaf.check].group)
+                if need and not cfg.integrations.enabled(need) and leaf.check not in warned:
+                    warned.add(leaf.check)
+                    out.append(
+                        ((*at, n), f"rule {rule.id} reads {leaf.check} but integrations.{need} is not "
+                         "enabled; the rule sees missing data")
+                    )
+                if (
+                    isinstance(leaf.value, str)
+                    and leaf.operator in ("any_of", "none_of", "matches_any")
+                    and not policy.lists.get(leaf.value)
+                ):
+                    out.append(
+                        ((*loc, leaf.operator),
+                         f"rule {rule.id} points at the empty list {leaf.value!r}; it never hits")
+                    )
+            types = set(rule.media_types)
+            if rule.on_hit == "approve":
+                for media_type in types:
+                    approve_first.setdefault(media_type, rule.id)
+            elif rule.on_hit in ("review", "reject"):
+                skipped = sorted({approve_first[t] for t in types if t in approve_first})
+                if skipped:
+                    out.append(
+                        ((*at, n),
+                         f"rule {rule.id} comes after the approve rule {', '.join(skipped)}; when that one hits "
+                         f"first, {rule.id} is never checked. Put rules that review or reject first")
+                    )
     if policy.auto_approve != "off":
         unchecked = [
             media_type for media_type in MEDIA_TYPES

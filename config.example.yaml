@@ -351,6 +351,25 @@ policy:
     #         - check: imdb.nudity
     #           at_least: moderate
     #   on_hit: review
+  # Scopes: a different policy for some sources or senders. The first scope
+  # whose `when` holds decides the item; `when` reads source, sender,
+  # time_window or post_age_hours. `types` changes only the fields it gives,
+  # `rules` run before the rules above, `skip` leaves rules above out.
+  # scopes:
+  #   - id: kids
+  #     name: The kids' Seerr accounts
+  #     when:
+  #       all:
+  #         - {check: source, any_of: [seerr]}
+  #         - {check: sender, any_of: [17, 23]}
+  #     types:
+  #       movie: {when_data_missing: review}
+  #     rules:
+  #       - id: kids-rating
+  #         check: certification
+  #         at_least: US:PG-13
+  #         on_hit: reject
+  #     skip: [nudity]
 
 # --- Release words: how a post names a language, subtitles, a whole season ----
 # Read by the audio_language, subtitles and season_complete signals. These are

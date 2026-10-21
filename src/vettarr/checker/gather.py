@@ -125,7 +125,8 @@ def title_rule_hits(policy: Any, media_type: str, tmdb: TMDBResult | None, cfg: 
 
     Only a rule that is one check is read. A rule that combines conditions
     has no ``check`` of its own and is left out: this flag is advisory, and
-    the decision itself still checks it.
+    the decision itself still checks it. For the same reason only the base
+    rules are read, never a scope's.
     """
     snapshot = title_signals(tmdb, tmdb_on=cfg.integrations.enabled("tmdb"))
     hits: list[str] = []
@@ -444,19 +445,29 @@ def base_signals(
     year = (tmdb.year if tmdb is not None and tmdb.year else None) or getattr(item, "year", None)
     snapshot["year"] = year if year else missing("no year")
     snapshot.update(release_signals(item, cfg.release_words))
+    snapshot.update(context_signals(item, cfg, now))
+    return snapshot
 
+
+def context_signals(item: Any, cfg: Any, now: datetime) -> dict[str, Any]:
+    """The signals read from the item row and the clock: what a scope's ``when`` reads.
+
+    Known before any lookup, so the pipeline can tell the scope, and with it
+    what to fetch, before it fetches anything.
+    """
+    out: dict[str, Any] = {}
     key = source_key(item, cfg)
-    snapshot["source"] = [key] if key else missing("the item's source is not configured")
-    snapshot["time_window"] = context_now(now)
+    out["source"] = [key] if key else missing("the item's source is not configured")
+    out["time_window"] = context_now(now)
     sender = getattr(item, "sender_id", None)
-    snapshot["sender"] = [str(sender)] if sender else missing("the item does not record its sender")
+    out["sender"] = [str(sender)] if sender else missing("the item does not record its sender")
     posted = getattr(item, "posted_at", None)
     if isinstance(posted, datetime):
         posted = posted if posted.tzinfo else posted.replace(tzinfo=timezone.utc)
-        snapshot["post_age_hours"] = round((now - posted).total_seconds() / 3600, 2)
+        out["post_age_hours"] = round((now - posted).total_seconds() / 3600, 2)
     else:
-        snapshot["post_age_hours"] = missing("the item does not record when it was posted")
-    return snapshot
+        out["post_age_hours"] = missing("the item does not record when it was posted")
+    return out
 
 
 # --- the lookups that cost a request ----------------------------------------
@@ -886,7 +897,7 @@ async def gather_signals(
         duplicate_of=duplicate_of, twin_of=twin_of, now=now,
     )
     if lookups and not snapshot.get(META_DUPLICATE):
-        needed = needed_signals(cfg.policy, _media_type(item))
+        needed = needed_signals(cfg.policy, _media_type(item), snapshot)
         size_known = not isinstance(snapshot.get("size_gb"), dict)
         snapshot.update(await costly_signals(
             session, item, cfg, needed, tmdb=tmdb, now=now, size_known=size_known,
