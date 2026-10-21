@@ -41,7 +41,9 @@ def components(cfg: Config) -> list[tuple[str, str]]:
     for name in ("prowlarr", "qbittorrent", "radarr", "sonarr", "seerr", "tmdb", "google_books", "jellyfin"):
         if integ.enabled(name):
             out.append((name, "integration"))
-    imdb_rules = [r.id for r in cfg.policy.rules if SIGNALS[r.check].group == "parents_guide"]
+    imdb_rules = [
+        r.id for r in cfg.policy.rules if any(SIGNALS[leaf.check].group == "parents_guide" for leaf in r.leaves())
+    ]
     if integ.imdb_guide.enabled and imdb_rules:
         out.append(("imdb_guide", "used by rules " + ", ".join(imdb_rules)))
 

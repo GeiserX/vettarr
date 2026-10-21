@@ -429,12 +429,18 @@ _HHMM = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 _CERT = re.compile(r"^[A-Z]{2}:\S.*$")
 
 
-class Rule(Block):
-    id: Key
-    name: str | None = None
-    # Empty means every type the signal applies to.
-    types: list[MediaType] = Field(default_factory=list)
-    check: str
+_GROUPS: tuple[str, ...] = ("all", "any", "not")
+
+
+class Condition(Block):
+    """One check, or ``all``, ``any`` or ``not`` over other conditions.
+
+    A leaf checks one signal with one operator against one value, as a rule
+    always has. A group combines conditions, which may be groups themselves.
+    ``split_vote`` and ``min_votes`` sit on the voted leaf they belong to.
+    """
+
+    check: str | None = None
     at_least: Any = None
     at_most: Any = None
     between: list[Any] | None = None
@@ -442,17 +448,67 @@ class Rule(Block):
     any_of: list[str | int] | str | None = None
     none_of: list[str | int] | str | None = None
     matches_any: list[str | int] | str | None = None
-    on_hit: Literal["approve", "review", "reject", "notify"] = "review"
     split_vote: float | None = Field(default=None, gt=0, le=1)
     min_votes: int | None = Field(default=None, ge=0)
+    all_: list[Condition] | None = Field(default=None, alias="all")
+    any_: list[Condition] | None = Field(default=None, alias="any")
+    not_: Condition | None = Field(default=None, alias="not")
 
     @field_validator("check")
     @classmethod
-    def _known_signal(cls, value: str) -> str:
+    def _known_signal(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
         name = canonical(value)
         if name is None:
             raise ValueError(f"unknown signal {value!r}; known signals: {', '.join(sorted(SIGNALS))}")
         return name
+
+    @field_validator("all_", "any_", mode="before")
+    @classmethod
+    def _a_list(cls, value: Any, info: Any) -> Any:
+        if value is not None and (not isinstance(value, list) or not value):
+            raise ValueError(f"{info.field_name.rstrip('_')} takes a list of at least one condition")
+        return value
+
+    @field_validator("not_", mode="before")
+    @classmethod
+    def _one(cls, value: Any) -> Any:
+        if value is not None and not isinstance(value, (dict, Condition)):
+            raise ValueError("not takes one condition")
+        return value
+
+    @property
+    def is_group(self) -> bool:
+        return self.check is None
+
+    @property
+    def children(self) -> list[Condition]:
+        """A group's conditions, in file order; a leaf has none."""
+        if self.not_ is not None:
+            return [self.not_]
+        return list(self.all_ or self.any_ or [])
+
+    def leaves(self) -> list[Condition]:
+        """Every leaf, depth first, in file order: a leaf is its own only leaf."""
+        return [leaf for _, leaf in self.leaves_at(())]
+
+    def leaves_at(self, loc: tuple[Any, ...]) -> list[tuple[tuple[Any, ...], Condition]]:
+        """Every leaf with its location under ``loc``, as config.yaml writes it: ``("all", 1, "any", 0)``."""
+        if not self.is_group:
+            return [(loc, self)]
+        if self.not_ is not None:
+            return self.not_.leaves_at((*loc, "not"))
+        name = "all" if self.all_ is not None else "any"
+        return [found for n, child in enumerate(self.children) for found in child.leaves_at((*loc, name, n))]
+
+    @property
+    def signal_types(self) -> tuple[str, ...]:
+        """The media types every leaf's signal applies to, in ``MEDIA_TYPES`` order."""
+        shared = set(MEDIA_TYPES)
+        for leaf in self.leaves():
+            shared &= set(SIGNALS[leaf.check].types)
+        return tuple(t for t in MEDIA_TYPES if t in shared)
 
     @property
     def operator(self) -> str:
@@ -466,9 +522,20 @@ class Rule(Block):
         return getattr(self, "is_" if op == "is" else op)
 
     @model_validator(mode="after")
-    def _one_operator(self) -> Rule:
-        signal = SIGNALS[self.check]
+    def _one_shape(self) -> Condition:
+        given = [name for name, value in zip(_GROUPS, (self.all_, self.any_, self.not_)) if value is not None]
+        if len(given) + (self.check is not None) != 1:
+            raise ValueError("a rule is one check, or one of all, any, not")
         used = [op for op in OPERATORS if self._value_of(op) is not None]
+        if self.is_group:
+            if self.split_vote is not None or self.min_votes is not None:
+                raise ValueError(
+                    "split_vote and min_votes go on the voted condition inside all, any or not, not on the rule"
+                )
+            if used:
+                raise ValueError(f"{', '.join(used)} goes with a check inside {given[0]}, not beside it")
+            return self
+        signal = SIGNALS[self.check]
         if len(used) != 1:
             raise ValueError(
                 f"a rule has exactly one operator; {self.check} takes one of: {', '.join(signal.operators)}"
@@ -477,12 +544,33 @@ class Rule(Block):
         op = used[0]
         if op not in signal.operators:
             raise ValueError(f"{self.check} does not take {op}; it takes: {', '.join(signal.operators)}")
-        outside = [t for t in self.types if t not in signal.types]
-        if outside:
-            raise ValueError(f"{self.check} applies to {', '.join(signal.types)}, not {', '.join(outside)}")
         if not signal.voted and (self.split_vote is not None or self.min_votes is not None):
             raise ValueError(f"split_vote and min_votes apply to voted signals (imdb.*), not {self.check}")
         setattr(self, "is_" if op == "is" else op, _check_value(signal.kind, op, self._value_of(op)))
+        return self
+
+
+class Rule(Condition):
+    id: Key
+    name: str | None = None
+    # Empty means every type the rule's signals apply to.
+    types: list[MediaType] = Field(default_factory=list)
+    on_hit: Literal["approve", "review", "reject", "notify"] = "review"
+
+    @property
+    def media_types(self) -> tuple[str, ...]:
+        """The types this rule is checked for: its own ``types``, else every type its signals share."""
+        return tuple(self.types) or self.signal_types
+
+    @model_validator(mode="after")
+    def _types_fit(self) -> Rule:
+        shared = self.signal_types
+        if not shared:
+            raise ValueError("the conditions of this rule share no media type")
+        outside = [t for t in self.types if t not in shared]
+        if outside:
+            what = self.check if not self.is_group else "this rule"
+            raise ValueError(f"{what} applies to {', '.join(shared)}, not {', '.join(outside)}")
         return self
 
 
@@ -758,23 +846,24 @@ def cross_check(cfg: Config) -> list[tuple[Loc, str]]:
         if rule.id in seen_rules:
             errors.append((("policy", "rules", n, "id"), f"duplicate rule id {rule.id!r}"))
         seen_rules.add(rule.id)
-        if isinstance(rule.value, str) and rule.operator in ("any_of", "none_of", "matches_any"):
-            if rule.value not in cfg.policy.lists:
-                known = ", ".join(sorted(cfg.policy.lists)) or "none defined"
-                errors.append(
-                    (("policy", "rules", n, rule.operator), f"no list {rule.value!r} under policy.lists; lists: {known}")
-                )
-                continue
-        if rule.check == "source":
-            values = cfg.policy.lists[rule.value] if isinstance(rule.value, str) else rule.value
-            source_keys = {s.key for s in cfg.sources}
-            if any(str(v) not in source_keys for v in values):
-                known = ", ".join(sorted(source_keys)) or "none defined"
-                errors.append(
-                    (("policy", "rules", n, rule.operator),
-                     f"source takes the keys of configured sources ({known}); the release's origin "
-                     "(CAM, TS, WEB-DL, ...) is release_source")
-                )
+        for loc, leaf in rule.leaves_at(("policy", "rules", n)):
+            if isinstance(leaf.value, str) and leaf.operator in ("any_of", "none_of", "matches_any"):
+                if leaf.value not in cfg.policy.lists:
+                    known = ", ".join(sorted(cfg.policy.lists)) or "none defined"
+                    errors.append(
+                        ((*loc, leaf.operator), f"no list {leaf.value!r} under policy.lists; lists: {known}")
+                    )
+                    continue
+            if leaf.check == "source":
+                values = cfg.policy.lists[leaf.value] if isinstance(leaf.value, str) else leaf.value
+                source_keys = {s.key for s in cfg.sources}
+                if any(str(v) not in source_keys for v in values):
+                    known = ", ".join(sorted(source_keys)) or "none defined"
+                    errors.append(
+                        ((*loc, leaf.operator),
+                         f"source takes the keys of configured sources ({known}); the release's origin "
+                         "(CAM, TS, WEB-DL, ...) is release_source")
+                    )
     return errors
 
 
@@ -784,22 +873,25 @@ def warnings(cfg: Config) -> list[tuple[Loc, str]]:
     policy = cfg.policy
     approve_first: dict[str, str] = {}
     for n, rule in enumerate(policy.rules):
-        need = GROUP_NEEDS.get(SIGNALS[rule.check].group)
-        if need and not cfg.integrations.enabled(need):
-            out.append(
-                (("policy", "rules", n), f"rule {rule.id} reads {rule.check} but integrations.{need} is not enabled; "
-                 "the rule sees missing data")
-            )
-        if (
-            isinstance(rule.value, str)
-            and rule.operator in ("any_of", "none_of", "matches_any")
-            and not policy.lists.get(rule.value)
-        ):
-            out.append(
-                (("policy", "rules", n, rule.operator),
-                 f"rule {rule.id} points at the empty list {rule.value!r}; it never hits")
-            )
-        types = set(rule.types or SIGNALS[rule.check].types)
+        warned: set[str] = set()
+        for loc, leaf in rule.leaves_at(("policy", "rules", n)):
+            need = GROUP_NEEDS.get(SIGNALS[leaf.check].group)
+            if need and not cfg.integrations.enabled(need) and leaf.check not in warned:
+                warned.add(leaf.check)
+                out.append(
+                    (("policy", "rules", n), f"rule {rule.id} reads {leaf.check} but integrations.{need} is not "
+                     "enabled; the rule sees missing data")
+                )
+            if (
+                isinstance(leaf.value, str)
+                and leaf.operator in ("any_of", "none_of", "matches_any")
+                and not policy.lists.get(leaf.value)
+            ):
+                out.append(
+                    ((*loc, leaf.operator),
+                     f"rule {rule.id} points at the empty list {leaf.value!r}; it never hits")
+                )
+        types = set(rule.media_types)
         if rule.on_hit == "approve":
             for media_type in types:
                 approve_first.setdefault(media_type, rule.id)
@@ -815,9 +907,7 @@ def warnings(cfg: Config) -> list[tuple[Loc, str]]:
         unchecked = [
             media_type for media_type in MEDIA_TYPES
             if policy.type_policy(media_type).mode == "rules"
-            and not any(
-                media_type in (rule.types or SIGNALS[rule.check].types) for rule in policy.rules
-            )
+            and not any(media_type in rule.media_types for rule in policy.rules)
         ]
         if unchecked:
             out.append(

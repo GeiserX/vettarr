@@ -10,6 +10,10 @@ The form is read into a plain dict of strings (``read_form``), the same shape
 ``policy_form`` builds from the file, and the template reads nothing else.
 ``policy_yaml`` turns it into the ``policy`` block.
 
+A rule that combines conditions (``all``, ``any``, ``not``) is not edited
+here: the page shows it as the file writes it, it can be moved or removed,
+and a save writes it back exactly as the file has it.
+
 A word or a name is shown as the file writes it (``${VAR}`` stays ``${VAR}``);
 a number or a choice is shown as it loads. Either way a field that comes back
 as it was shown is written as the file has it, so a save changes what was
@@ -19,6 +23,7 @@ changed and nothing else: a reference stays a reference, ``0.333`` stays
 
 from __future__ import annotations
 
+import io
 import re
 from html import escape
 from typing import Any
@@ -72,7 +77,7 @@ GROUPS = (
 )
 DEFAULT_SIGNAL = "imdb.violence"
 
-_RULE = re.compile(r"^rule-(\d+)-check$")
+_RULE = re.compile(r"^rule-(\d+)-(?:check|group)$")
 _LIST = re.compile(r"^list-(\d+)-name$")
 _KEY = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 _WHOLE = re.compile(r"^-?\d+$")
@@ -99,8 +104,22 @@ def _single(kind: str) -> str:
     return {"severity": "severity", "resolution": "resolution", "certification": "cert"}.get(kind, "number")
 
 
+def _group_form(rule_id: str, name: str = "", written: str = "") -> dict[str, Any]:
+    """A rule that combines conditions: shown as ``written``, its YAML, and kept as the file has it."""
+    return {"id": rule_id, "name": name, "group": True, "yaml": written, "errors": {}}
+
+
+def _as_yaml(node: Any) -> str:
+    buffer = io.StringIO()
+    loader.yaml().dump(node, buffer)
+    return buffer.getvalue()
+
+
 def _rule_form(rule: Rule, raw: dict[str, Any]) -> dict[str, Any]:
     """A rule's form. ``raw`` is the rule as the file writes it: its words and its name are shown from there."""
+    if rule.is_group:
+        written = raw or rule.model_dump(mode="json", by_alias=True, exclude_none=True, exclude_defaults=True)
+        return _group_form(str(raw.get("id") or rule.id), str(raw.get("name") or rule.name or ""), _as_yaml(written))
     signal, operator, value = SIGNALS[rule.check], rule.operator, rule.value
     form = _blank_rule(str(raw.get("id") or rule.id), rule.check, operator)
     form.update(
@@ -159,6 +178,9 @@ def read_form(data: FormData) -> dict[str, Any]:
 
     rules = []
     for i in indexes(_RULE):
+        if data.get(f"rule-{i}-group"):
+            rules.append(_group_form(text(f"rule-{i}-id")))
+            continue
         check = canonical(text(f"rule-{i}-check")) or DEFAULT_SIGNAL
         signal = SIGNALS[check]
         operator = text(f"rule-{i}-operator")
@@ -349,9 +371,12 @@ def policy_yaml(form: dict[str, Any], old: dict[str, Any], shown: dict[str, Any]
     if lists or "lists" in old:
         out["lists"] = lists
     old_rules = {str(r.get("id")): r for r in old.get("rules") or [] if isinstance(r, dict)}
-    shown_rules = {rule["id"]: rule for rule in shown["rules"]}
+    shown_rules = {rule["id"]: rule for rule in shown["rules"] if not rule.get("group")}
     out["rules"] = [
-        _rule_yaml(rule, old_rules.get(rule["id"], {}), shown_rules.get(rule["id"])) for rule in form["rules"]
+        # A combined rule is written as the file has it; one the file does not have cannot come from this page.
+        old_rules[rule["id"]] if rule.get("group") else
+        _rule_yaml(rule, old_rules.get(rule["id"], {}), shown_rules.get(rule["id"]))
+        for rule in form["rules"] if not rule.get("group") or rule["id"] in old_rules
     ]
     return out
 
@@ -470,6 +495,11 @@ def _render(
     focus: str | None = None,
     previewing: bool = False,
 ) -> HTMLResponse:
+    groups = {rule["id"]: rule for rule in policy_form(state)["rules"] if rule.get("group")}
+    for rule in form["rules"]:
+        # A posted combined rule carries its id only; what it says is read from the file.
+        if rule.get("group") and not rule["yaml"] and rule["id"] in groups:
+            rule.update(name=groups[rule["id"]]["name"], yaml=groups[rule["id"]]["yaml"])
     context = _context(state, form, config, impact, focus, previewing)
     if is_htmx(request):
         return templates.TemplateResponse(request, "policy/_editor.html", context, headers=headers)

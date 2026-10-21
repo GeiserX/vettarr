@@ -314,6 +314,117 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual(components(load_text("", "c.yaml", {})), [])
 
 
+class CombinedRuleTests(unittest.TestCase):
+    """A rule that combines checks with all, any and not: its shape, its types, and what cross_check reads."""
+
+    def one_error(self, rule: str) -> str:
+        errors = errors_of("policy:\n  rules:\n    - " + rule + "\n")
+        self.assertEqual(len(errors), 1, errors)
+        return errors[0]
+
+    def test_a_rule_is_one_check_or_one_group(self) -> None:
+        year = "{check: year, at_most: 1999}"
+        guide = "{check: imdb.violence, at_least: severe}"
+        for rule, expected in (
+            ("{id: x, on_hit: review}", "c.yaml:3: policy.rules[0]: a rule is one check, or one of all, any, not"),
+            (f"{{id: x, check: year, at_most: 1, all: [{year}]}}",
+             "c.yaml:3: policy.rules[0]: a rule is one check, or one of all, any, not"),
+            (f"{{id: x, all: [{year}], any: [{year}]}}",
+             "c.yaml:3: policy.rules[0]: a rule is one check, or one of all, any, not"),
+            ("{id: x, all: []}", "c.yaml:3: policy.rules[0].all: all takes a list of at least one condition"),
+            (f"{{id: x, any: {year}}}", "c.yaml:3: policy.rules[0].any: any takes a list of at least one condition"),
+            (f"{{id: x, not: [{year}]}}", "c.yaml:3: policy.rules[0].not: not takes one condition"),
+            (f"{{id: x, all: [{year}, {{name: n}}]}}",
+             "c.yaml:3: policy.rules[0].all[1].name: Extra inputs are not permitted"),
+            (f"{{id: x, all: [{year}, {{any: [{{check: year, any_of: [1]}}]}}]}}",
+             "c.yaml:3: policy.rules[0].all[1].any[0]: year does not take any_of; it takes: at_least, at_most, between"),
+            (f"{{id: x, all: [{year}], at_most: 3}}",
+             "c.yaml:3: policy.rules[0]: at_most goes with a check inside all, not beside it"),
+            (f"{{id: x, all: [{guide}, {{check: subject, any_of: [a]}}]}}",
+             "c.yaml:3: policy.rules[0]: the conditions of this rule share no media type"),
+            (f"{{id: x, types: [movie, ebook], all: [{year}, {guide}]}}",
+             "c.yaml:3: policy.rules[0]: this rule applies to movie, series, not ebook"),
+            ("{id: x, types: [ebook], check: imdb.violence, at_least: severe}",
+             "c.yaml:3: policy.rules[0]: imdb.violence applies to movie, series, not ebook"),
+        ):
+            with self.subTest(rule=rule):
+                self.assertEqual(self.one_error(rule), expected)
+
+    def test_split_vote_on_a_group_rule_is_refused(self) -> None:
+        guide = "{check: imdb.violence, at_least: severe}"
+        for extra in ("split_vote: 0.4", "min_votes: 10"):
+            with self.subTest(extra=extra):
+                self.assertEqual(
+                    self.one_error(f"{{id: x, any: [{guide}], {extra}}}"),
+                    "c.yaml:3: policy.rules[0]: split_vote and min_votes go on the voted condition inside all, any "
+                    "or not, not on the rule",
+                )
+        cfg = load_text(
+            f"policy:\n  rules:\n    - {{id: x, any: [{{check: imdb.violence, at_least: severe, split_vote: 0.4}}]}}\n",
+            "c.yaml", {},
+        )
+        self.assertEqual(cfg.policy.rules[0].leaves()[0].split_vote, 0.4)
+
+    def test_cross_check_and_warnings_reach_a_leaf_inside_a_group(self) -> None:
+        from vettarr.config.schema import warnings
+
+        errors = errors_of("""
+        telegram: {bot_token: t}
+        sources:
+          - {key: inbox, kind: bot, chat: private}
+        policy:
+          rules:
+            - id: g
+              all:
+                - {check: size_gb, at_least: 1}
+                - any:
+                    - {check: keyword, matches_any: nolist}
+                    - {check: source, any_of: [elsewhere]}
+        """)
+        self.assertEqual(errors, [
+            "c.yaml:10: policy.rules[0].all[1].any[0].matches_any: no list 'nolist' under policy.lists; "
+            "lists: none defined",
+            "c.yaml:11: policy.rules[0].all[1].any[1].any_of: source takes the keys of configured sources "
+            "(inbox); the release's origin (CAM, TS, WEB-DL, ...) is release_source",
+        ])
+        cfg = load_text(
+            yaml("""
+            policy:
+              lists:
+                empty: []
+              rules:
+                - id: g
+                  all:
+                    - {check: size_gb, at_least: 1}
+                    - not: {check: keyword, matches_any: empty}
+                    - {check: keyword, any_of: [list-a-word]}
+            """),
+            "c.yaml",
+            {},
+        )
+        said = [(loc, message) for loc, message in warnings(cfg) if loc[:2] == ("policy", "rules")]
+        self.assertEqual(said, [
+            (("policy", "rules", 0), "rule g reads keyword but integrations.tmdb is not enabled; "
+             "the rule sees missing data"),
+            (("policy", "rules", 0, "all", 1, "not", "matches_any"),
+             "rule g points at the empty list 'empty'; it never hits"),
+        ])
+
+    def test_the_commented_group_example_in_config_example_is_valid(self) -> None:
+        lines = EXAMPLE.read_text().splitlines()
+        start = next(n for n, line in enumerate(lines) if line.startswith("    # A rule can combine checks"))
+        block = []
+        for line in lines[start + 1:]:
+            if not line.startswith("    # "):
+                break
+            block.append("    " + line[len("    # "):])
+        self.assertTrue(block)
+        cfg = load_text("policy:\n  rules:\n" + "\n".join(block) + "\n", "c.yaml", {})
+        group = cfg.policy.rules[0]
+        self.assertEqual((group.id, group.is_group), ("old-and-rough", True))
+        self.assertEqual([leaf.check for leaf in group.leaves()], ["year", "imdb.violence", "imdb.nudity"])
+
+
 class WriterTests(unittest.TestCase):
     ORIGINAL = yaml("""
     # The operator's note about the web block.
