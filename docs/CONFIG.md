@@ -577,7 +577,7 @@ Every decision made in `shadow` raises a `would_have` event, whatever it was. A 
 
 Each decided item keeps, beside the 0.11 columns (`auto_decision`, `auto_reasons` as plain text):
 
-- `reasons`: a list of `{kind, rule, text}`. Kinds: `rule` (a rule hit; `rule` is its id), `missing` and `unavailable` (a rule that could not be checked), `notify`, `duplicate`, `identity`, `type`, `setting`, `shadow`, `expired` (waited `max_wait_hours`), `clear` (what an approval rested on), `scope` (the scope the decision was made under, always last; `rule` is the scope's id), `delivery` (added after the decision: `not delivered`, `already in the library`, `delivered by title`, `sent on a person's approval`, and `rejected:` with what the rejection did at the target).
+- `reasons`: a list of `{kind, rule, text}`. Kinds: `rule` (a rule hit; `rule` is its id), `missing` and `unavailable` (a rule that could not be checked), `notify`, `duplicate`, `identity`, `type`, `setting`, `shadow`, `expired` (waited `max_wait_hours`), `clear` (what an approval rested on), `scope` (the scope the decision was made under, last among the decision's reasons, with `delivery` reasons added later after it; `rule` is the scope's id), `delivery` (added after the decision: `not delivered`, `already in the library`, `delivered by title`, `sent on a person's approval`, and `rejected:` with what the rejection did at the target).
 - `policy_version`: the first 12 hex characters of a SHA-256 over the `policy` block.
 - `policy_outcome`: what the policy decided (`approve`, `review`, `reject`, `wait`), which under `shadow` or `off` is not what was done.
 - `signals`: the snapshot the decision read, including the per-severity vote breakdown, genre ids, certifications by country and the book verdict.

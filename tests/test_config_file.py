@@ -541,6 +541,60 @@ class ScopeConfigTests(unittest.TestCase):
         acting = cfg.model_copy(update={"policy": cfg.policy.model_copy(update={"auto_approve": "on"})})
         self.assertIn(("policy", "auto_approve on, 4 rules"), components(acting))
 
+    def test_a_scope_whose_when_points_at_an_empty_list_is_warned_about(self) -> None:
+        from vettarr.config.schema import warnings
+
+        cfg = load_text(
+            yaml(SCOPE_SOURCES + """
+            policy:
+              lists:
+                kids: []
+              scopes:
+                - id: kids
+                  when:
+                    all:
+                      - {check: source, any_of: [group]}
+                      - {check: sender, any_of: kids}
+            """.replace("\n            ", "\n")),
+            "c.yaml", {},
+        )
+        said = [(loc, message) for loc, message in warnings(cfg) if loc[:2] == ("policy", "scopes")]
+        self.assertEqual(said, [
+            (("policy", "scopes", 0, "when", "all", 1, "any_of"),
+             "scope kids points at the empty list 'kids'; it never applies"),
+        ])
+
+    def test_a_scope_that_leaves_a_type_with_no_rule_is_warned_about(self) -> None:
+        from vettarr.config.schema import warnings
+
+        cfg = load_text(
+            yaml(SCOPE_SOURCES + """
+            policy:
+              auto_approve: on
+              types:
+                series: {mode: never}
+                audiobook: {mode: never}
+                ebook: {mode: never}
+                magazine: {mode: never}
+                comic: {mode: never}
+                music: {mode: never}
+              rules:
+                - {id: big, check: size_gb, at_least: 50}
+              scopes:
+                - id: tg
+                  when: {check: source, any_of: [group]}
+                  types:
+                    music: {mode: rules}
+                  skip: [big]
+            """.replace("\n            ", "\n")),
+            "c.yaml", {},
+        )
+        said = [(loc, message) for loc, message in warnings(cfg) if "no rule applies" in message]
+        self.assertEqual(said, [
+            (("policy", "scopes", 0), "under the scope tg, no rule applies to movie, music, so every such item is "
+             "held for a person; give the type a rule, or set its mode to always or never to say which you mean"),
+        ])
+
     def test_the_commented_scopes_example_in_config_example_is_valid(self) -> None:
         lines = EXAMPLE.read_text().splitlines()
         start = lines.index("  # scopes:")

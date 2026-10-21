@@ -977,18 +977,37 @@ def warnings(cfg: Config) -> list[tuple[Loc, str]]:
                          f"rule {rule.id} comes after the approve rule {', '.join(skipped)}; when that one hits "
                          f"first, {rule.id} is never checked. Put rules that review or reject first")
                     )
+    # A scope's when that points at an empty list never applies.
+    for n, scope in enumerate(policy.scopes):
+        for loc, leaf in scope.when.leaves_at(("policy", "scopes", n, "when")):
+            if (
+                isinstance(leaf.value, str)
+                and leaf.operator in ("any_of", "none_of", "matches_any")
+                and not policy.lists.get(leaf.value)
+            ):
+                out.append(
+                    ((*loc, leaf.operator),
+                     f"scope {scope.id} points at the empty list {leaf.value!r}; it never applies")
+                )
     if policy.auto_approve != "off":
-        unchecked = [
-            media_type for media_type in MEDIA_TYPES
-            if policy.type_policy(media_type).mode == "rules"
-            and not any(media_type in rule.media_types for rule in policy.rules)
-        ]
-        if unchecked:
-            out.append(
-                (("policy", "types"),
-                 f"no rule applies to {', '.join(unchecked)}, so every such item is held for a person; "
-                 "give the type a rule, or set its mode to always or never to say which you mean")
-            )
+        # The base policy, then each scope with its own types, rules and skip.
+        for at, scope in [(("policy", "types"), None),
+                          *((("policy", "scopes", n), scope) for n, scope in enumerate(policy.scopes))]:
+            rules = policy.rules if scope is None else [
+                *scope.rules, *(rule for rule in policy.rules if rule.id not in scope.skip)
+            ]
+            unchecked = [
+                media_type for media_type in MEDIA_TYPES
+                if policy.type_policy(media_type, scope).mode == "rules"
+                and not any(media_type in rule.media_types for rule in rules)
+            ]
+            if unchecked:
+                under = "" if scope is None else f"under the scope {scope.id}, "
+                out.append(
+                    (at,
+                     f"{under}no rule applies to {', '.join(unchecked)}, so every such item is held for a person; "
+                     "give the type a rule, or set its mode to always or never to say which you mean")
+                )
     for n, provider in enumerate(cfg.providers):
         if provider.auth.from_ == "login" and provider.search == "none":
             out.append(
