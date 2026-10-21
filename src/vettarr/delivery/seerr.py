@@ -31,6 +31,10 @@ REQUEST_APPROVED = 2
 REQUEST_DECLINED = 3
 REQUEST_FAILED = 4
 
+#: Seerr's CSRF protection: the cookie it sets, and the header it reads it back from.
+CSRF_COOKIE = "XSRF-TOKEN"
+CSRF_HEADER = "X-XSRF-TOKEN"
+
 NO_USER = (
     "integrations.seerr.user_id is not set: a request made with the API key alone "
     "would be approved as the Seerr admin, so none is sent"
@@ -95,6 +99,27 @@ class SeerrClient:
             raise DeliveryError(NO_USER)
         return {"X-API-User": str(self._user_id)}
 
+    async def _write(self, method: str, path: str, **kwargs: Any) -> Any:
+        """A POST or DELETE that also passes Seerr's CSRF protection when it is on.
+
+        With "CSRF Protection" on (Settings, Network), Seerr answers every
+        write 403 "invalid csrf token", API key or not. Its token is the
+        ``XSRF-TOKEN`` cookie it sets on any answer, sent back as the
+        ``X-XSRF-TOKEN`` header next to its ``_csrf`` cookie. So a write
+        refused for that takes the cookies from a read and is sent once more.
+        """
+        try:
+            return await self._api.request(method, path, **kwargs)
+        except DeliveryError as exc:
+            if exc.status != 403 or "csrf" not in str(exc).lower():
+                raise
+        await self._api.request("GET", "/api/v1/settings/about")
+        token = self._api.cookie(CSRF_COOKIE)
+        if not token:
+            raise DeliveryError("Seerr refused the write for its CSRF protection and sent no token", 403)
+        headers = {**(kwargs.pop("headers", None) or {}), CSRF_HEADER: token}
+        return await self._api.request(method, path, headers=headers, **kwargs)
+
     async def test(self) -> str:
         """Test connection: Seerr's version. ``/settings/about`` answers only to a valid key."""
         about = await self._api.request("GET", "/api/v1/settings/about")
@@ -126,7 +151,7 @@ class SeerrClient:
                 body["tvdbId"] = tvdb_id
             body["seasons"] = seasons if seasons else "all"
         try:
-            made = await self._api.request("POST", "/api/v1/request", json=body, headers=headers)
+            made = await self._write("POST", "/api/v1/request", json=body, headers=headers)
         except DeliveryError as exc:
             if exc.status == 409:
                 # "Request for this media already exists."
@@ -185,14 +210,14 @@ class SeerrClient:
 
     async def approve(self, request_id: int | str) -> None:
         """Approve a pending request, as the admin. Seerr answers 409 for one that is no longer pending."""
-        await self._api.request("POST", f"/api/v1/request/{request_id}/approve")
+        await self._write("POST", f"/api/v1/request/{request_id}/approve")
 
     async def decline(self, request_id: int | str) -> None:
         """Decline a pending request, as the admin. 409 for one that is no longer pending, 404 for one that is gone."""
-        await self._api.request("POST", f"/api/v1/request/{request_id}/decline")
+        await self._write("POST", f"/api/v1/request/{request_id}/decline")
 
     async def withdraw(self, request_id: int | str) -> None:
         """Delete a request, as the user who made it. Seerr allows that only while it is pending."""
-        await self._api.request(
+        await self._write(
             "DELETE", f"/api/v1/request/{request_id}", headers=self._as_user(), missing_ok=True,
         )

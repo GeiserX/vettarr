@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "vettarr"
-version = "1.0.3"
+version = "1.0.4"
 description = "Send a link, a post, a magnet, a torrent or a Seerr request; your rules decide what gets downloaded"
 license = "AGPL-3.0-or-later"
 license-files = ["LICENSE"]
