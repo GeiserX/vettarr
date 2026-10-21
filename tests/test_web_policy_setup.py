@@ -887,7 +887,7 @@ COMBINED_RULE = """\
 
 
 class PolicyCombinedRuleTests(PolicyCase):
-    """A rule that combines checks is shown as the file writes it, moved, removed, and saved back as written."""
+    """A rule that combines checks is shown as its YAML, moved, removed, and saved back as written."""
 
     CONFIG = CONFIG.replace("web:\n", COMBINED_RULE + "web:\n")
 
@@ -928,6 +928,20 @@ class PolicyCombinedRuleTests(PolicyCase):
         self.post("/policy", data=forms(removed.text, "/policy")[0], headers=HTMX)
         self.assertEqual([r.id for r in self.file().policy.rules], ["unwanted-keywords", "violence"])
         self.assertNotIn("old-and-rough", self.path.read_text())
+
+    def test_focus_lands_on_a_combined_rule_that_takes_a_removed_rule_s_place(self) -> None:
+        removed = self.send("/policy/edit", op="remove-rule:1")
+        name = re.search(r'<span[^>]*id="rule-1-name"[^>]*>', removed.text).group(0)
+        self.assertIn('tabindex="-1"', name)
+        self.assertIn("autofocus", name)
+
+    def test_a_combined_rule_the_file_no_longer_has_refuses_the_save(self) -> None:
+        # The page was opened, then the rule was renamed in config.yaml by hand.
+        resp = self.send(rule__3__group="1", rule__3__id="renamed-by-hand")
+        self.assertIn("Nothing saved", resp.headers.get("HX-Trigger", ""))
+        self.assertIn("rule renamed-by-hand is a combined rule config.yaml no longer has; reload the page",
+                      unescape(resp.text))
+        self.unchanged()
 
 
 class PolicyPreviewTests(PolicyCase):

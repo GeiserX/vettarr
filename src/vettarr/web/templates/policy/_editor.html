@@ -87,13 +87,13 @@
             {% set i = loop.index0 %}
             {% set n = loop.index %}
             {% if rule.group %}
-            {# A rule that combines conditions: shown as the file writes it, moved or removed here, edited in the file. #}
+            {# A rule that combines conditions: shown as its YAML once loaded (comments left out), moved or removed here, edited in the file. #}
             <li class="card p-4" id="rule-{{ i }}">
                 <input type="hidden" name="rule-{{ i }}-group" value="1">
                 <input type="hidden" name="rule-{{ i }}-id" value="{{ rule.id }}">
                 <div class="flex flex-wrap items-center gap-2">
                     <span class="text-sm font-bold text-muted" aria-hidden="true">{{ n }}</span>
-                    <span class="grow min-w-0 basis-48 font-semibold" id="rule-{{ i }}-name">{{ rule.name or rule.id }}</span>
+                    <span class="grow min-w-0 basis-48 font-semibold" id="rule-{{ i }}-name" tabindex="-1"{{ af('rule-' ~ i ~ '-name') }}>{{ rule.name or rule.id }}</span>
                     <span class="font-mono text-sm text-muted">{{ rule.id }}</span>
                     {% if not ro %}
                     <span class="flex gap-1 ml-auto">
@@ -109,7 +109,7 @@
                     </span>
                     {% endif %}
                 </div>
-                <pre class="post-text font-mono text-sm overflow-x-auto" aria-label="Rule {{ n }} as config.yaml writes it">{{ rule.yaml }}</pre>
+                <pre class="post-text font-mono text-sm overflow-x-auto" aria-label="Rule {{ n }} in YAML, as it loads">{{ rule.yaml }}</pre>
                 <p class="hint mt-2">A combined rule is edited in config.yaml and is kept as written when you save.</p>
                 {{ error(rule.errors.values()|join('; '), 'err-rule-' ~ i) }}
             </li>

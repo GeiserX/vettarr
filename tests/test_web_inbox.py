@@ -1641,5 +1641,15 @@ class AuditPageTests(PageCase):
         self.assertNotIn("Error · 0%", block)
 
 
+class ReasonWordsTests(unittest.TestCase):
+    def test_a_combined_rule_s_text_is_worded_part_by_part(self) -> None:
+        from vettarr.web import words
+
+        self.assertEqual(words.reason("year: 1990; imdb.violence: severe"), "Year: 1990; Violence (IMDb): severe")
+        self.assertEqual(words.reason("size_gb: 12; imdb.nudity: parents guide not fetched (not listed yet)"),
+                         "Size (GB): 12; Waiting for IMDb's parents guide (not listed yet)")
+        self.assertEqual(words.reason("no rule hit (2 checked)"), "no rule hit (2 checked)")
+
+
 if __name__ == "__main__":
     unittest.main()

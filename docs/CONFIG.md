@@ -452,7 +452,7 @@ A condition whose data is missing is neither true nor false. A combined conditio
 | `any` | any condition is true | every condition is false | otherwise |
 | `not` | its condition is false | its condition is true | its condition is missing |
 
-A combined rule that is missing is treated as any rule whose data is missing: the type's `when_data_missing` decides. Its reason names the checks that hit, joined with `;`, or the first check whose data is missing. It applies to the media types all its checks share; a rule whose checks share none is an error, and so is `types` naming a type outside them. The Policy page shows a combined rule as the file writes it, moves and removes it, and keeps it as written when it saves; its conditions are edited in the file. The content check's keyword and genre flags read single-check rules only.
+A combined rule that is missing is treated as any rule whose data is missing: the type's `when_data_missing` decides. Its reason names the checks that hit, joined with `;`, or the first check whose data is missing. It applies to the media types all its checks share; a rule whose checks share none is an error, and so is `types` naming a type outside them. The Policy page shows a combined rule's YAML as it loads (its comments left out), moves and removes it, and keeps it as written when it saves; its conditions are edited in the file. The content check's keyword and genre flags read single-check rules only.
 
 Value shapes:
 

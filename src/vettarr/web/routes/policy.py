@@ -11,7 +11,7 @@ The form is read into a plain dict of strings (``read_form``), the same shape
 ``policy_yaml`` turns it into the ``policy`` block.
 
 A rule that combines conditions (``all``, ``any``, ``not``) is not edited
-here: the page shows it as the file writes it, it can be moved or removed,
+here: the page shows its YAML as it loads (comments left out), it can be moved or removed,
 and a save writes it back exactly as the file has it.
 
 A word or a name is shown as the file writes it (``${VAR}`` stays ``${VAR}``);
@@ -372,8 +372,14 @@ def policy_yaml(form: dict[str, Any], old: dict[str, Any], shown: dict[str, Any]
         out["lists"] = lists
     old_rules = {str(r.get("id")): r for r in old.get("rules") or [] if isinstance(r, dict)}
     shown_rules = {rule["id"]: rule for rule in shown["rules"] if not rule.get("group")}
+    for rule in form["rules"]:
+        # A combined rule the file no longer has was renamed or removed by hand while the page was open.
+        if rule.get("group") and rule["id"] not in old_rules:
+            form["problems"].append(
+                f"rule {rule['id']} is a combined rule config.yaml no longer has; reload the page"
+            )
     out["rules"] = [
-        # A combined rule is written as the file has it; one the file does not have cannot come from this page.
+        # A combined rule is written as the file has it.
         old_rules[rule["id"]] if rule.get("group") else
         _rule_yaml(rule, old_rules.get(rule["id"], {}), shown_rules.get(rule["id"]))
         for rule in form["rules"] if not rule.get("group") or rule["id"] in old_rules
@@ -420,7 +426,7 @@ def build(state: configfile.State, form: dict[str, Any]) -> tuple[str, Config | 
     configfile.put(doc, "policy", policy_yaml(form, old if isinstance(old, dict) else {}, policy_form(state)))
     text, config, errors = configfile.validate(doc)
     attach(form, errors)
-    if _own_errors(form):
+    if _own_errors(form) or form["problems"]:
         config = None
     return text, config
 
