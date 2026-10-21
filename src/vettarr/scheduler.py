@@ -79,7 +79,7 @@ def _live_downloads_query():
     return select(Download).where(Download.status == DownloadStatus.DOWNLOADING)
 
 
-async def _complete_item(session, item_id: int) -> bool:
+async def _complete_item(session, item_id: int, from_statuses=COMPLETABLE_STATUSES) -> bool:
     """Mark the item done, unless somebody moved it out of DOWNLOADING. True when it was marked.
 
     A poll iteration takes as long as qBittorrent takes to answer, and a
@@ -90,9 +90,12 @@ async def _complete_item(session, item_id: int) -> bool:
         update(MediaItem)
         .where(
             MediaItem.id == item_id,
-            MediaItem.status.in_(list(COMPLETABLE_STATUSES)),
+            MediaItem.status.in_(list(from_statuses)),
         )
-        .values(status=ItemStatus.COMPLETED)
+        .values(
+            status=ItemStatus.COMPLETED,
+            **({"error_message": None} if ItemStatus.ERROR in from_statuses else {}),
+        )
         .returning(MediaItem.id)
     )
     return moved.scalar_one_or_none() is not None
@@ -181,6 +184,41 @@ async def check_delivery(dl: Download, posts=None) -> None:
     await _settle(dl, await delivery.poll(dl), posts)
 
 
+async def _recover_seerr(posts=None) -> None:
+    """A Seerr delivery that went to a person still completes once Seerr has the files.
+
+    Seerr marks a request failed when Radarr or Sonarr turned the title away,
+    which they do when they already hold it, and then its availability sync
+    finds the files anyway. Seen live: two items stayed errors for days after
+    Seerr had them. Only the files clear it: an item a person moved on is
+    left alone, and a Seerr that cannot be asked is asked again next time.
+    """
+    async with async_session() as session:
+        failed = (await session.execute(
+            select(Download).where(
+                Download.status == DownloadStatus.ERROR, Download.delivery_target == delivery.SEERR,
+            )
+        )).scalars().all()
+    for dl in failed:
+        try:
+            if not (await delivery.poll(dl)).done:
+                continue
+        except Exception as exc:
+            log.debug("Could not ask Seerr again about item %d: %s", dl.media_item_id, exc)
+            continue
+        async with async_session() as session:
+            if not await _complete_item(session, dl.media_item_id, frozenset({ItemStatus.ERROR})):
+                continue
+            await session.execute(
+                update(Download).where(Download.id == dl.id, Download.status == DownloadStatus.ERROR)
+                .values(status=DownloadStatus.COMPLETED, progress=1.0)
+            )
+            await session.commit()
+        await delivery.completed(dl)
+        await delivery.arrived(dl, posts)
+        log.info("Seerr has the files of item %d after all; its error is cleared", dl.media_item_id)
+
+
 async def _check_downloads(posts=None) -> None:
     """One check of every live download. ``posts`` runs a post's on_download once its files arrive."""
     async with async_session() as session:
@@ -219,6 +257,10 @@ async def _check_downloads(posts=None) -> None:
                         log.info("Marked hashless download as complete for item %d (past grace period)", dl.media_item_id)
         except Exception:
             log.exception("Error checking download %d", dl.id)
+    try:
+        await _recover_seerr(posts)
+    except Exception:
+        log.exception("Re-checking failed Seerr deliveries failed")
 
 
 async def _recheck_waiting() -> None:

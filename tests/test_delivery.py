@@ -483,6 +483,47 @@ class SeerrClientTests(unittest.TestCase):
     def test_media_of_a_title_seerr_has_never_seen_is_empty(self) -> None:
         self.assertEqual(run(self.client.media("movie", TMDB_ID)), {})
 
+    def test_a_write_passes_seerr_s_csrf_protection(self) -> None:
+        # Seen live: with CSRF Protection on, Seerr refused every approve
+        # "403 invalid csrf token", so no request the policy cleared got through.
+        self.server.csrf = True
+        pending = self.server.add_request("movie", TMDB_ID, user=5)
+        run(self.client.approve(pending["id"]))
+        self.assertEqual(self.server.requests[pending["id"]]["status"], fakes.REQUEST_APPROVED)
+        first, read, again = self.server.calls
+        self.assertEqual((first.method, read.method, again.method), ("POST", "GET", "POST"))
+        self.assertNotIn("x-xsrf-token", first.headers)
+        self.assertEqual(again.headers["x-xsrf-token"], fakes.CSRF_TOKEN)
+        self.assertEqual(again.headers["x-api-key"], API_KEY)
+
+    def test_a_request_through_csrf_still_goes_as_the_user(self) -> None:
+        self.server.csrf = True
+        made = run(self.client.request("movie", TMDB_ID))
+        self.assertEqual(made["requestedBy"]["id"], 2)
+        self.assertEqual(self.server.sent("POST", "/api/v1/request")[-1].headers["x-api-user"], "2")
+
+    def test_decline_and_withdraw_pass_csrf_too(self) -> None:
+        self.server.csrf = True
+        declined = self.server.add_request("movie", TMDB_ID, user=5)
+        run(self.client.decline(declined["id"]))
+        self.assertEqual(self.server.requests[declined["id"]]["status"], fakes.REQUEST_DECLINED)
+        mine = self.server.add_request("tv", SERIES_TMDB_ID, user=2, seasons=[1])
+        run(self.client.withdraw(mine["id"]))
+        self.assertNotIn(mine["id"], self.server.requests)
+
+    def test_without_csrf_a_write_is_sent_once(self) -> None:
+        pending = self.server.add_request("movie", TMDB_ID, user=5)
+        run(self.client.approve(pending["id"]))
+        self.assertEqual([c.method for c in self.server.calls], ["POST"])
+
+    def test_another_403_is_not_retried(self) -> None:
+        pending = self.server.add_request("movie", TMDB_ID, user=5)
+        client = SeerrClient("http://seerr:5055", API_KEY, 2, http=self.server.http())
+        with self.assertRaises(DeliveryError) as caught:
+            run(client._write("POST", f"/api/v1/request/{pending['id']}/approve", headers={"X-API-User": "2"}))
+        self.assertEqual(caught.exception.status, 403)
+        self.assertEqual(len(self.server.calls), 1)
+
 
 class TvdbIdTests(unittest.TestCase):
     """The TVDB id Sonarr and Seerr know a series by comes from TMDB's external ids."""
@@ -1483,6 +1524,36 @@ class SeerrCompletionTests(CompletionCase):
         self.poll()
         self.assertEqual(item.status, ItemStatus.ERROR)
         self.assertEqual(drain()[0][0], events.DELIVERY_FAILED)
+
+    def test_a_failed_request_clears_itself_once_seerr_has_the_files(self) -> None:
+        # Seen live: Seerr failed the request (Radarr already held the title),
+        # then found the files; the item stayed an error for days.
+        item, ref = self.claimed()
+        dl = self.delivered(ref)
+        self.seerr.set_request(31, fakes.REQUEST_FAILED)
+        self.poll()
+        self.assertEqual((dl.status, item.status), (DownloadStatus.ERROR, ItemStatus.ERROR))
+        drain()
+        self.poll()
+        self.assertEqual(item.status, ItemStatus.ERROR)
+        self.seerr.info("movie", TMDB_ID)["status"] = fakes.MEDIA_AVAILABLE
+        self.poll()
+        self.assertEqual((dl.status, item.status), (DownloadStatus.COMPLETED, ItemStatus.COMPLETED))
+        self.assertIsNone(item.error_message)
+        self.assertEqual([kind for kind, _id, _p in drain()], [events.COMPLETED])
+        self.posts.after.assert_awaited_once_with("download", item.id)
+
+    def test_an_error_a_person_moved_on_is_left_alone(self) -> None:
+        item, ref = self.claimed()
+        dl = self.delivered(ref)
+        self.seerr.set_request(31, fakes.REQUEST_FAILED)
+        self.poll()
+        item.status = ItemStatus.REJECTED
+        drain()
+        self.seerr.info("movie", TMDB_ID)["status"] = fakes.MEDIA_AVAILABLE
+        self.poll()
+        self.assertEqual((dl.status, item.status), (DownloadStatus.ERROR, ItemStatus.REJECTED))
+        self.assertEqual(drain(), [])
 
     def test_a_pending_request_keeps_waiting_however_long(self) -> None:
         item, ref = self.claimed()

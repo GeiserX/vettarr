@@ -59,6 +59,10 @@ class Api:
     async def close(self) -> None:
         await self._http.aclose()
 
+    def cookie(self, name: str) -> str | None:
+        """A cookie the service set on an earlier answer, or None."""
+        return self._http.cookies.get(name)
+
     async def request(
         self,
         method: str,

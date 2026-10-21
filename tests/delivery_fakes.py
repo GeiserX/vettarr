@@ -273,6 +273,10 @@ SHOW_SEASONS = (1, 2, 3)
 _CLOSED = (REQUEST_DECLINED, REQUEST_COMPLETED)
 
 
+CSRF_COOKIE = "XSRF-TOKEN"
+CSRF_TOKEN = "fake-csrf-token"
+
+
 class FakeSeerr(FakeServer):
     def __init__(self) -> None:
         super().__init__()
@@ -284,6 +288,10 @@ class FakeSeerr(FakeServer):
         self.media: dict[tuple[str, int], dict[str, Any]] = {}
         self.requests: dict[int, dict[str, Any]] = {}
         self._next_id = 31
+        #: Seerr's "CSRF Protection" (Settings, Network). On, every write
+        #: without the token is 403 "invalid csrf token", API key or not; the
+        #: token is the XSRF-TOKEN cookie every answer sets.
+        self.csrf = False
 
     def _seasons_left(self, info: dict[str, Any], asked) -> list[int]:
         """The seasons of a request Seerr would still take.
@@ -365,7 +373,17 @@ class FakeSeerr(FakeServer):
             info[key] = max(info.get(key, MEDIA_UNKNOWN), MEDIA_PROCESSING)
         return _json(200, found)
 
+    def _handle(self, request: httpx.Request) -> httpx.Response:
+        answer = super()._handle(request)
+        if self.csrf:
+            answer.headers["set-cookie"] = f"{CSRF_COOKIE}={CSRF_TOKEN}; Path=/"
+        return answer
+
     def route(self, method, path, params, body, request) -> httpx.Response:
+        if self.csrf and method != "GET":
+            sent = request.headers.get("X-XSRF-TOKEN")
+            if sent != CSRF_TOKEN or f"{CSRF_COOKIE}={CSRF_TOKEN}" not in request.headers.get("cookie", ""):
+                return _json(403, {"message": "invalid csrf token"})
         if (method, path) == ("GET", "/api/v1/settings/about"):
             return _json(200, {"version": "3.5.0", "totalRequests": len(self.requests), "totalMediaItems": 0})
         if (method, path) == ("GET", "/api/v1/request"):
