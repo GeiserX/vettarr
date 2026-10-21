@@ -203,8 +203,11 @@ async def _recover_seerr(posts=None) -> None:
         try:
             if not (await delivery.poll(dl)).done:
                 continue
-        except Exception as exc:
+        except delivery.DeliveryError as exc:
             log.debug("Could not ask Seerr again about item %d: %s", dl.media_item_id, exc)
+            continue
+        except Exception:
+            log.exception("Re-checking the Seerr delivery of item %d failed", dl.media_item_id)
             continue
         async with async_session() as session:
             if not await _complete_item(session, dl.media_item_id, frozenset({ItemStatus.ERROR})):
