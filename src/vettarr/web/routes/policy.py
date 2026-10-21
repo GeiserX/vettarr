@@ -12,7 +12,9 @@ The form is read into a plain dict of strings (``read_form``), the same shape
 
 A rule that combines conditions (``all``, ``any``, ``not``) is not edited
 here: the page shows its YAML as it loads (comments left out), it can be moved or removed,
-and a save writes it back exactly as the file has it.
+and a save writes it back exactly as the file has it. ``scopes`` are not
+edited here either: the page shows them the same way, and a save keeps the
+block as the file has it.
 
 A word or a name is shown as the file writes it (``${VAR}`` stays ``${VAR}``);
 a number or a choice is shown as it loads. Either way a field that comes back
@@ -384,6 +386,9 @@ def policy_yaml(form: dict[str, Any], old: dict[str, Any], shown: dict[str, Any]
         _rule_yaml(rule, old_rules.get(rule["id"], {}), shown_rules.get(rule["id"]))
         for rule in form["rules"] if not rule.get("group") or rule["id"] in old_rules
     ]
+    # Not on the form: kept as the file has it.
+    if "scopes" in old:
+        out["scopes"] = old["scopes"]
     return out
 
 
@@ -434,6 +439,17 @@ def build(state: configfile.State, form: dict[str, Any]) -> tuple[str, Config | 
 # --- the answers ---------------------------------------------------------------
 
 
+def _scopes(state: configfile.State) -> str:
+    """The file's ``scopes`` block as YAML, as it loads; empty when there is none."""
+    raw = state.raw("policy") if state.doc is not None else None
+    if isinstance(raw, dict):
+        written = raw.get("scopes")
+    else:
+        written = [s.model_dump(mode="json", by_alias=True, exclude_none=True, exclude_defaults=True)
+                   for s in state.config.policy.scopes]
+    return _as_yaml(written) if written else ""
+
+
 def _warnings(config: Config) -> list[str]:
     return [message for loc, message in schema.warnings(config) if loc and loc[0] == "policy"]
 
@@ -450,6 +466,7 @@ def _context(
     ) + len(form["problems"])
     return {
         "state": state, "form": form, "impact": impact, "invalid": invalid, "focus": focus, "previewing": previewing,
+        "scopes": _scopes(state),
         "warnings": _warnings(config) if config is not None else [],
         "auto_approve_options": AUTO_APPROVE, "modes": MODES, "when_missing": WHEN_MISSING,
         "operator_words": OPERATOR_WORDS, "on_hit": ON_HIT, "mark": MARK, "signals": SIGNALS,

@@ -130,6 +130,11 @@ def canonical(name: str) -> str | None:
                 return signal.name
     return None
 
+# The signals a scope's `when` may read: each comes from the item row or the
+# clock, so it is known before any lookup, is in every stored snapshot, and
+# costs no request.
+SCOPE_SIGNALS: tuple[str, ...] = ("source", "sender", "time_window", "post_age_hours")
+
 # Which integration feeds each group. A rule whose integration is not enabled
 # sees missing data, and the type's when_data_missing applies.
 GROUP_NEEDS: dict[str, str] = {

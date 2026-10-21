@@ -243,6 +243,15 @@
         {% endif %}
     </section>
 
+    {% if scopes %}
+    <section class="card p-4" aria-labelledby="h-scopes">
+        <h2 class="setup-title" id="h-scopes">Scopes</h2>
+        <p class="hint">A scope decides the items from a source, a sender or an hour with its own type settings and rules, checked before the rules above.</p>
+        <pre class="post-text font-mono text-sm overflow-x-auto mt-3" aria-label="Scopes in YAML, as they load">{{ scopes }}</pre>
+        <p class="hint mt-2">Scopes are edited in config.yaml and are kept as written when you save.</p>
+    </section>
+    {% endif %}
+
     <section aria-labelledby="h-lists">
         <h2 class="setup-title" id="h-lists">Lists</h2>
         <p class="hint">Named word lists. A rule points at one with &ldquo;the list &hellip;&rdquo;, so a long list is written once.</p>

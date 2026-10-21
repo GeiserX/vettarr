@@ -944,6 +944,69 @@ class PolicyCombinedRuleTests(PolicyCase):
         self.unchanged()
 
 
+SCOPES = """\
+  scopes:
+    - id: late-night             # the films group after dark
+      name: Late posts
+      when: {all: [{check: source, any_of: [films]}, {check: time_window, between: ['22:00', '06:00']}]}
+      types:
+        movie: {when_data_missing: review}
+      rules:
+        - {id: late-big, check: size_gb, at_least: 20}
+      skip: [violence]
+"""
+
+
+class PolicyScopeTests(PolicyCase):
+    """Scopes are shown as their YAML, kept as written by every save, and read by the preview."""
+
+    CONFIG = CONFIG.replace("web:\n", SCOPES + "web:\n")
+
+    def test_scopes_are_shown_read_only_and_a_save_keeps_them_as_written(self) -> None:
+        page = self.get("/policy").text
+        shown = unescape(re.search(r'<pre[^>]*aria-label="Scopes in YAML[^"]*"[^>]*>(.*?)</pre>', page, re.S).group(1))
+        for line in ("id: late-night", "name: Late posts", "check: time_window", "when_data_missing: review",
+                     "id: late-big", "skip:"):
+            with self.subTest(line=line):
+                self.assertIn(line, shown)
+        self.assertIn("Scopes are edited in config.yaml and are kept as written when you save.", text_of(page))
+        self.assertFalse([name for name in forms(page, "/policy")[0] if "scope" in name])
+        resp = self.send()
+        self.assertNotIn("Nothing was saved", resp.text)
+        self.unchanged()
+        # A change elsewhere leaves them as written, comment and all.
+        self.send(auto_approve="on")
+        self.assertIn(SCOPES, self.path.read_text())
+        self.assertEqual(self.file().policy.scopes, self.running.policy.scopes)
+        # A base rule a scope skips cannot be removed from under it.
+        removed = self.send("/policy/edit", op="remove-rule:1")
+        refused = self.post("/policy", data=forms(removed.text, "/policy")[0], headers=HTMX)
+        self.assertIn("skip names no base rule &#39;violence&#39;; base rules: unwanted-keywords", refused.text)
+        self.assertEqual([r.id for r in self.file().policy.rules], ["unwanted-keywords", "violence"])
+
+    def test_a_policy_without_scopes_shows_no_scopes_section(self) -> None:
+        self.path.write_text(self.before.replace(SCOPES, ""))
+        self.assertNotIn("Scopes", text_of(self.get("/policy").text))
+
+    def test_preview_decides_with_the_file_s_scopes(self) -> None:
+        with mock.patch.object(policy_routes, "preview_impact", mock.AsyncMock(return_value=Impact())) as preview:
+            self.send("/policy/preview", auto_approve="on")
+        candidate, _ = preview.await_args.args
+        self.assertEqual([s.id for s in candidate.scopes], ["late-night"])
+        self.assertEqual(candidate.scopes[0].skip, ["violence"])
+        self.unchanged()
+
+    def test_a_source_a_scope_names_cannot_be_removed(self) -> None:
+        refused = self.post("/setup/sources/films/delete", headers=HTMX)
+        self.assertEqual(refused.status_code, 409)
+        self.assertIn("films was not removed.", refused.text)
+        self.unchanged()
+        self.path.write_text(self.before.replace(SCOPES, ""))
+        gone = self.post("/setup/sources/films/delete", headers=HTMX)
+        self.assertEqual(gone.headers["HX-Redirect"], self.saved("sources"))
+        self.assertEqual(self.file().sources, [])
+
+
 class PolicyPreviewTests(PolicyCase):
     def test_preview_runs_the_form_s_policy_over_the_last_200_and_writes_nothing(self) -> None:
         impact = Impact(

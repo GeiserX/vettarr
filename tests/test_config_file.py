@@ -425,6 +425,195 @@ class CombinedRuleTests(unittest.TestCase):
         self.assertEqual([leaf.check for leaf in group.leaves()], ["year", "imdb.violence", "imdb.nudity"])
 
 
+SCOPE_SOURCES = """
+telegram: {bot_token: t, api_id: 1, api_hash: h}
+sources:
+  - {key: group, kind: userbot, chat: -1}
+  - {key: inbox, kind: bot, chat: private}
+"""
+
+
+class ScopeConfigTests(unittest.TestCase):
+    """policy.scopes: ids, skip, what `when` may read, and what cross_check and warnings reach."""
+
+    def test_scope_ids_rule_ids_and_skip_are_checked(self) -> None:
+        errors = errors_of(SCOPE_SOURCES + """
+        policy:
+          rules:
+            - {id: big, check: size_gb, at_least: 50}
+          scopes:
+            - id: tg
+              when: {check: source, any_of: [group]}
+              rules:
+                - {id: own, check: size_gb, at_least: 1}
+                - {id: own, check: size_gb, at_least: 2}
+                - {id: big, check: size_gb, at_least: 3}
+              skip: [big, nope]
+            - id: tg
+              when: {check: source, any_of: [inbox]}
+        """.replace("\n        ", "\n"))
+        self.assertEqual(errors, [
+            "c.yaml:14: policy.scopes[0].rules[1].id: duplicate rule id 'own'",
+            "c.yaml:15: policy.scopes[0].rules[2].id: rule id 'big' is already a base rule; a scope's rule needs "
+            "its own id",
+            "c.yaml:16: policy.scopes[0].skip[1]: skip names no base rule 'nope'; base rules: big",
+            "c.yaml:17: policy.scopes[1].id: duplicate scope id 'tg'",
+        ])
+
+    def test_a_scope_s_when_takes_only_pre_lookup_signals(self) -> None:
+        for when, expected in (
+            ("{check: imdb.violence, at_least: severe}", "c.yaml:4: policy.scopes[0].when: a scope's when reads "
+             "what is known before any lookup (source, sender, time_window, post_age_hours), not imdb.violence"),
+            ("{all: [{check: sender, any_of: [1]}, {not: {check: size_gb, at_least: 1}}]}",
+             "c.yaml:4: policy.scopes[0].when: a scope's when reads what is known before any lookup (source, "
+             "sender, time_window, post_age_hours), not size_gb"),
+            ("{}", "c.yaml:4: policy.scopes[0].when: a rule is one check, or one of all, any, not"),
+        ):
+            with self.subTest(when=when):
+                self.assertEqual(errors_of(f"policy:\n  scopes:\n    - id: s\n      when: {when}\n"), [expected])
+        errors = errors_of("policy:\n  scopes:\n    - {id: s}\n")
+        self.assertEqual(errors, ["c.yaml:3: policy.scopes[0].when: Field required"])
+        cfg = load_text(
+            yaml(SCOPE_SOURCES + """
+            policy:
+              scopes:
+                - id: late
+                  when:
+                    any:
+                      - {check: time_window, between: ['22:00', '06:00']}
+                      - {check: post_age_hours, at_least: 48}
+                      - {check: sender, matches_any: [17]}
+            """.replace("\n            ", "\n")),
+            "c.yaml", {},
+        )
+        self.assertEqual([leaf.check for leaf in cfg.policy.scopes[0].when.leaves()],
+                         ["time_window", "post_age_hours", "sender"])
+
+    def test_cross_check_reaches_a_scope_s_when_and_rules(self) -> None:
+        errors = errors_of(SCOPE_SOURCES + """
+        policy:
+          scopes:
+            - id: tg
+              when: {all: [{check: source, any_of: [group, seerr]}, {check: sender, any_of: kids}]}
+              rules:
+                - {id: own, any: [{check: keyword, matches_any: nolist}]}
+        """.replace("\n        ", "\n"))
+        self.assertEqual(errors, [
+            "c.yaml:9: policy.scopes[0].when.all[0].any_of: source takes the keys of configured sources (group, "
+            "inbox); the release's origin (CAM, TS, WEB-DL, ...) is release_source",
+            "c.yaml:9: policy.scopes[0].when.all[1].any_of: no list 'kids' under policy.lists; lists: none defined",
+            "c.yaml:11: policy.scopes[0].rules[0].any[0].matches_any: no list 'nolist' under policy.lists; "
+            "lists: none defined",
+        ])
+
+    def test_warnings_reach_a_scope_s_rules(self) -> None:
+        from vettarr.config.schema import warnings
+
+        cfg = load_text(
+            yaml(SCOPE_SOURCES + """
+            policy:
+              lists:
+                empty: []
+              rules:
+                - {id: base-ok, check: size_gb, at_most: 1, on_hit: approve}
+              scopes:
+                - id: tg
+                  when: {check: source, any_of: [group]}
+                  rules:
+                    - {id: tg-ok, check: size_gb, at_most: 2, on_hit: approve}
+                    - {id: tg-guide, check: imdb.violence, at_least: severe}
+                    - {id: tg-words, check: keyword, matches_any: empty}
+            """.replace("\n            ", "\n")),
+            "c.yaml", {},
+        )
+        said = [(loc, message) for loc, message in warnings(cfg) if loc[:2] == ("policy", "scopes")]
+        self.assertEqual(said, [
+            (("policy", "scopes", 0, "rules", 1), "rule tg-guide comes after the approve rule tg-ok; when that one "
+             "hits first, tg-guide is never checked. Put rules that review or reject first"),
+            (("policy", "scopes", 0, "rules", 2), "rule tg-words reads keyword but integrations.tmdb is not "
+             "enabled; the rule sees missing data"),
+            (("policy", "scopes", 0, "rules", 2, "matches_any"), "rule tg-words points at the empty list 'empty'; "
+             "it never hits"),
+            (("policy", "scopes", 0, "rules", 2), "rule tg-words comes after the approve rule tg-ok; when that one "
+             "hits first, tg-words is never checked. Put rules that review or reject first"),
+        ])
+        # The policy line counts a scope's rules with the base ones.
+        acting = cfg.model_copy(update={"policy": cfg.policy.model_copy(update={"auto_approve": "on"})})
+        self.assertIn(("policy", "auto_approve on, 4 rules"), components(acting))
+
+    def test_a_scope_whose_when_points_at_an_empty_list_is_warned_about(self) -> None:
+        from vettarr.config.schema import warnings
+
+        cfg = load_text(
+            yaml(SCOPE_SOURCES + """
+            policy:
+              lists:
+                kids: []
+              scopes:
+                - id: kids
+                  when:
+                    all:
+                      - {check: source, any_of: [group]}
+                      - {check: sender, any_of: kids}
+            """.replace("\n            ", "\n")),
+            "c.yaml", {},
+        )
+        said = [(loc, message) for loc, message in warnings(cfg) if loc[:2] == ("policy", "scopes")]
+        self.assertEqual(said, [
+            (("policy", "scopes", 0, "when", "all", 1, "any_of"),
+             "scope kids points at the empty list 'kids'; it never applies"),
+        ])
+
+    def test_a_scope_that_leaves_a_type_with_no_rule_is_warned_about(self) -> None:
+        from vettarr.config.schema import warnings
+
+        cfg = load_text(
+            yaml(SCOPE_SOURCES + """
+            policy:
+              auto_approve: on
+              types:
+                series: {mode: never}
+                audiobook: {mode: never}
+                ebook: {mode: never}
+                magazine: {mode: never}
+                comic: {mode: never}
+                music: {mode: never}
+              rules:
+                - {id: big, check: size_gb, at_least: 50}
+              scopes:
+                - id: tg
+                  when: {check: source, any_of: [group]}
+                  types:
+                    music: {mode: rules}
+                  skip: [big]
+            """.replace("\n            ", "\n")),
+            "c.yaml", {},
+        )
+        said = [(loc, message) for loc, message in warnings(cfg) if "no rule applies" in message]
+        self.assertEqual(said, [
+            (("policy", "scopes", 0), "under the scope tg, no rule applies to movie, music, so every such item is "
+             "held for a person; give the type a rule, or set its mode to always or never to say which you mean"),
+        ])
+
+    def test_the_commented_scopes_example_in_config_example_is_valid(self) -> None:
+        lines = EXAMPLE.read_text().splitlines()
+        start = lines.index("  # scopes:")
+        block = []
+        for line in lines[start:]:
+            if not line.startswith("  # "):
+                break
+            block.append("  " + line[len("  # "):])
+        cfg = load_text(
+            "telegram: {bot_token: t}\nintegrations:\n  seerr: {url: 'http://seerr', api_key: k}\n"
+            "sources:\n  - {key: seerr, kind: seerr}\n"
+            "policy:\n  rules:\n    - {id: nudity, check: imdb.nudity, at_least: moderate}\n" + "\n".join(block) + "\n",
+            "c.yaml", {},
+        )
+        scope = cfg.policy.scopes[0]
+        self.assertEqual((scope.id, scope.skip, [r.id for r in scope.rules]), ("kids", ["nudity"], ["kids-rating"]))
+        self.assertEqual(cfg.policy.type_policy("movie", scope).when_data_missing, "review")
+
+
 class WriterTests(unittest.TestCase):
     ORIGINAL = yaml("""
     # The operator's note about the web block.

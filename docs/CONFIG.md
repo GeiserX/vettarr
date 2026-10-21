@@ -401,6 +401,7 @@ Each integration has a connection test for the Setup page. Radarr and Sonarr ans
 | `types.<t>.max_wait_hours` | int | `24` | After this long waiting, the item goes to review. |
 | `lists` | name → words | `{}` | Named lists for `matches_any`, `any_of` and `none_of`. A rule that points at an empty list never hits, and `config check` warns. |
 | `rules` | list | `[]` | Evaluated in order. |
+| `scopes` | list | `[]` | A different policy for the items from some sources, senders or hours. See [Scopes](#scopes). |
 
 A **rule** checks one signal with one operator against one value, or combines several such checks (see [Combining conditions](#combining-conditions)). It *hits* when its condition is true, and then `on_hit` applies.
 
@@ -454,6 +455,45 @@ A condition whose data is missing is neither true nor false. A combined conditio
 
 A combined rule that is missing is treated as any rule whose data is missing: the type's `when_data_missing` decides. Its reason names the checks that hit, joined with `;`, or the first check whose data is missing. It applies to the media types all its checks share; a rule whose checks share none is an error, and so is `types` naming a type outside them. The Policy page shows a combined rule's YAML as it loads (its comments left out), moves and removes it, and keeps it as written when it saves; its conditions are edited in the file. The content check's keyword and genre flags read single-check rules only.
 
+#### Scopes
+
+A scope decides some items with other settings: strict for the kids' Seerr accounts, looser for a group you trust. The first scope whose `when` is true decides the item; an item no scope takes is decided by the policy above, the base policy.
+
+```yaml
+policy:
+  auto_approve: on
+  types: {movie: {mode: rules, when_data_missing: wait, max_wait_hours: 24}}
+  rules: [...]                          # the base policy
+  scopes:
+    - id: kids
+      name: The kids' Seerr accounts
+      when:
+        all:
+          - {check: source, any_of: [seerr]}
+          - {check: sender, any_of: [17, 23]}
+      types:
+        movie: {when_data_missing: review}       # only the fields given change
+      rules:                                     # checked before the base rules
+        - id: kids-rating
+          check: certification
+          at_least: US:PG-13
+          on_hit: reject
+      skip: [trusted-approve]                    # base rule ids left out
+```
+
+| Field | Type | Default | Notes |
+|---|---|---|---|
+| `id` | key | required | Unique among scopes; shown as the reason. |
+| `name` | string | none | Human label. |
+| `when` | condition | required | One check, or `all`, `any`, `not` over checks, as in a rule. It reads only what is known before any lookup: `source`, `sender`, `time_window`, `post_age_hours`. A `when` whose data is missing (an item that does not record its sender) does not pick its scope. |
+| `types` | media type → `mode`, `when_data_missing`, `max_wait_hours` | `{}` | Changes only the fields it gives; the rest are the base type's. |
+| `rules` | list | `[]` | Rules checked before the base rules, with their own ids (not one a base rule has). They read `policy.lists` and carry their own `min_votes`. |
+| `skip` | base rule ids | `[]` | Base rules this scope does not check. Every id must be a base rule's. |
+
+A scope's own `approve` rule runs before the base rules, so it can end the walk before them: that is how a scope is looser. A scope's `reject` or `review` rule is collected with the base ones: that is how it is stricter. To replace the base rules entirely, `skip` all of them. `sender` is the Telegram user id of a post, or the Seerr user id of a request. A `source` value in `when`, like one in a rule, must be the key of a configured source, so a source a scope names cannot be removed from the setup page.
+
+Every decision made under a scope ends with a reason of kind `scope` naming it. The Policy page shows the `scopes` block as it loads (comments left out) and keeps it as written when it saves; scopes are edited in the file. The content check's keyword and genre flags read the base rules only.
+
 Value shapes:
 
 - severity: `none` < `mild` < `moderate` < `severe` (case-insensitive)
@@ -506,15 +546,16 @@ The public default policy, as shipped in `config.example.yaml`: violence at leas
 
 The engine is [`checker/policy.py`](../src/vettarr/checker/policy.py), a pure function of the item, its signals and this block. In order:
 
-1. A duplicate of something already approved, downloading or done, or a second post of a title still being worked out, goes to a person.
-2. The type's `mode`: `always` approves, `never` goes to a person. A type in mode `rules` that no rule applies to goes to a person as well.
-3. An item with no title goes to a person. When a rule reads the TMDB record or IMDb data (a title signal, an `imdb.*` signal, `status`, `episode_count` or `in_library`), a TMDB match that is not the title the post asked for (another year, a sequel, a remake) goes to a person too: that data would be another title's.
-4. The rules that apply to the type, in file order. `reject` and `review` hits are all collected; a `notify` hit is recorded and changes nothing; the first `approve` hit ends the walk, but only when no earlier rule hit or lacked its data. A rule that combines conditions (`all`, `any`, `not`) hits when the combination is true; it lacks its data when the combination cannot be settled without a missing part.
-5. Any `reject` hit rejects. Otherwise any `review` hit reviews. Otherwise an `approve` hit approves.
-6. Otherwise, if a rule's data is missing, or its integration is off (`unavailable`), the type's `when_data_missing` decides: `approve`, `review`, or `wait`, re-checked hourly until `max_wait_hours` have passed since the item arrived, and then review.
-7. Otherwise nothing hit: approve.
+1. The scope: the first entry of `scopes` whose `when` is true for the item's source, sender and clock gives the type settings and rules below; otherwise the base policy does. Every reason list of a decision made under a scope ends with that scope.
+2. A duplicate of something already approved, downloading or done, or a second post of a title still being worked out, goes to a person.
+3. The type's `mode`: `always` approves, `never` goes to a person. A type in mode `rules` that no rule applies to goes to a person as well.
+4. An item with no title goes to a person. When a rule reads the TMDB record or IMDb data (a title signal, an `imdb.*` signal, `status`, `episode_count` or `in_library`), a TMDB match that is not the title the post asked for (another year, a sequel, a remake) goes to a person too: that data would be another title's.
+5. The rules that apply to the type: the scope's own first, then the base rules it does not skip, each in file order. `reject` and `review` hits are all collected; a `notify` hit is recorded and changes nothing; the first `approve` hit ends the walk, but only when no earlier rule hit or lacked its data. A rule that combines conditions (`all`, `any`, `not`) hits when the combination is true; it lacks its data when the combination cannot be settled without a missing part.
+6. Any `reject` hit rejects. Otherwise any `review` hit reviews. Otherwise an `approve` hit approves.
+7. Otherwise, if a rule's data is missing, or its integration is off (`unavailable`), the type's `when_data_missing` decides: `approve`, `review`, or `wait`, re-checked hourly until `max_wait_hours` have passed since the item arrived, and then review.
+8. Otherwise nothing hit: approve.
 
-The data a type waits for is exactly what its rules read. A policy with no `keyword` rule never waits for TMDB keywords, and the IMDb guide is fetched only while a rule reads an `imdb.*` signal. Lookups that cost a request (Jellyfin, qBittorrent, a search, the linked `.torrent`) run only for the signals a rule of the item's type reads, and never while `auto_approve` is `off`. A lookup that fails leaves its own signals missing and no other's. An item that waits is decided again every hour, so the costly answers are kept between decisions: a `.torrent`'s file list for good, a search for six hours, the download client's free space for five minutes.
+The data a type waits for is exactly what its rules read, under the scope that decides the item: the scope is settled from the item's source, sender and clock before anything is fetched. A policy with no `keyword` rule never waits for TMDB keywords, and the IMDb guide is fetched only while a rule reads an `imdb.*` signal. Lookups that cost a request (Jellyfin, qBittorrent, a search, the linked `.torrent`) run only for the signals a rule of the item's type reads, and never while `auto_approve` is `off`. A lookup that fails leaves its own signals missing and no other's. An item that waits is decided again every hour, so the costly answers are kept between decisions: a `.torrent`'s file list for good, a search for six hours, the download client's free space for five minutes.
 
 An `approve` rule ends the walk, so a rule after it is not checked when it hits. Put the rules that review or reject first; `config check` warns when one comes after an `approve` rule for the same type.
 
@@ -530,13 +571,13 @@ Every decision made in `shadow` raises a `would_have` event, whatever it was. A 
 
 **A policy rejection can be overruled, a person's cannot.** An item the policy rejected never enters the review queue. It shows in the web UI's Inbox under the Decided tab (set the policy outcome filter to `reject` to see only these), and its row and its page have an *Approve anyway* button until a person decides it. Its page also has *Rerun policy*, which decides it again under the rules as they are now. With `split_vote` on a rule that rejects, a minority of the votes is enough to reject. Nobody is told about a rejection beyond its `decision` event, so a rule that should not act on a minority belongs on `on_hit: review`.
 
-`vettarr rerun` (and the bot's `/rerun`) re-decides the reviews whose first reason is a setting (`off`, `shadow`, a type held by its mode), never one a rule flagged, and only where the setting has moved since. It does nothing while `auto_approve` is `off`. In `shadow` it leaves the shadow reviews this same policy made, and in any mode it leaves an item whose type is still held by its mode. Each of those would land where it is. An item it leaves in the queue is not pushed to the reviewers again and raises no second `needs_you` event.
+`vettarr rerun` (and the bot's `/rerun`) re-decides the reviews whose first reason is a setting (`off`, `shadow`, a type held by its mode), never one a rule flagged, and only where the setting has moved since. It does nothing while `auto_approve` is `off`. In `shadow` it leaves the shadow reviews this same policy made, and in any mode it leaves an item whose type is still held by its mode, under the base policy and under every scope. Each of those would land where it is. An item it leaves in the queue is not pushed to the reviewers again and raises no second `needs_you` event.
 
 #### What a decision records
 
 Each decided item keeps, beside the 0.11 columns (`auto_decision`, `auto_reasons` as plain text):
 
-- `reasons`: a list of `{kind, rule, text}`. Kinds: `rule` (a rule hit; `rule` is its id), `missing` and `unavailable` (a rule that could not be checked), `notify`, `duplicate`, `identity`, `type`, `setting`, `shadow`, `expired` (waited `max_wait_hours`), `clear` (what an approval rested on), `delivery` (added after the decision: `not delivered`, `already in the library`, `delivered by title`, `sent on a person's approval`, and `rejected:` with what the rejection did at the target).
+- `reasons`: a list of `{kind, rule, text}`. Kinds: `rule` (a rule hit; `rule` is its id), `missing` and `unavailable` (a rule that could not be checked), `notify`, `duplicate`, `identity`, `type`, `setting`, `shadow`, `expired` (waited `max_wait_hours`), `clear` (what an approval rested on), `scope` (the scope the decision was made under, last among the decision's reasons, with `delivery` reasons added later after it; `rule` is the scope's id), `delivery` (added after the decision: `not delivered`, `already in the library`, `delivered by title`, `sent on a person's approval`, and `rejected:` with what the rejection did at the target).
 - `policy_version`: the first 12 hex characters of a SHA-256 over the `policy` block.
 - `policy_outcome`: what the policy decided (`approve`, `review`, `reject`, `wait`), which under `shadow` or `off` is not what was done.
 - `signals`: the snapshot the decision read, including the per-severity vote breakdown, genre ids, certifications by country and the book verdict.
@@ -545,7 +586,7 @@ Rows decided before this have none of these. Their `auto_reasons` read as reason
 
 #### Preview impact
 
-`vettarr.checker.policy.preview_impact(candidate, limit=200)` re-evaluates the last 200 items from their stored `signals` under a candidate `policy` block and returns the count per outcome and every item whose outcome would change, with the new reasons. It makes no TMDB, IMDb or catalogue request. Each item is decided as of the moment it was decided, so an item that was waiting then still waits under an unchanged policy, however long ago that was. Rows without stored signals (decided before the policy engine) are counted as not comparable.
+`vettarr.checker.policy.preview_impact(candidate, limit=200)` re-evaluates the last 200 items from their stored `signals` under a candidate `policy` block and returns the count per outcome and every item whose outcome would change, with the new reasons. It makes no TMDB, IMDb or catalogue request. Each item is decided as of the moment it was decided, so an item that was waiting then still waits under an unchanged policy, however long ago that was. Rows without stored signals (decided before the policy engine) are counted as not comparable. Each item's scope is picked from its stored snapshot, which holds `source`, `sender`, `time_window` and `post_age_hours`; a snapshot without them matches no scope.
 
 #### Where each signal comes from
 

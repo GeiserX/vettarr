@@ -50,21 +50,26 @@ from vettarr.checker.policy import (
     REJECT,
     REVIEW,
     RULE,
+    SCOPE,
     UNAVAILABLE,
     WAIT,
     Reason,
     act,
     applicable_rules,
+    applying_scope,
     check_condition,
     check_rule,
     compare,
     evaluate,
+    is_settings_review,
     legacy_reasons,
     needed_signals,
     policy_version,
+    type_policy,
+    worth_rerunning,
 )
 from vettarr.checker.tmdb_client import MATCH_WITH_YEAR, TMDBResult
-from vettarr.config.schema import Config, Policy, Rule
+from vettarr.config.schema import Config, Policy, Rule, TypePolicy
 from vettarr.config.signals import SIGNALS
 from vettarr.models import (
     ItemStatus,
@@ -417,6 +422,218 @@ class CombinedConditionTests(unittest.TestCase):
                         min_votes = leaf.min_votes if leaf.min_votes is not None else default
                         before = check_rule(leaf, signals.get(leaf.check), cfg.policy.lists, min_votes)
                         self.assertEqual(check_condition(leaf, signals, cfg.policy.lists, default), before)
+
+
+TELEGRAM = {"check": "source", "any_of": ["group", "inbox"]}
+KIDS = {"all": [{"check": "source", "any_of": ["seerr"]}, {"check": "sender", "any_of": [17, 23]}]}
+GUIDE = {"check": "imdb.violence", "at_least": "severe"}
+
+
+def scoped(*scopes, rules=(), types=None) -> Policy:
+    return policy(*rules, types=types, scopes=list(scopes))
+
+
+def under(scope_id: str) -> Reason:
+    return Reason(SCOPE, scope_id, f"decided under the scope {scope_id}")
+
+
+# What the fixture policy decided before scopes existed, for the snapshots in
+# `test_a_policy_without_scopes_decides_as_before`, recorded from main at
+# a57dd1a: (media type, snapshot, hours since the item arrived) -> decision.
+_SEVERE = {"severity": "severe", "votes": 8, "breakdown": {"severe": 8}}
+_NONE = {"severity": "none", "votes": 50, "breakdown": {"none": 50}}
+_SPLIT = {"severity": "mild", "votes": 100, "breakdown": {"mild": 55, "moderate": 45}}
+_CLEAR_GUIDE = {"imdb.violence": _NONE, "imdb.nudity": _NONE, "imdb.frightening": _NONE}
+_NO_DATA = [
+    (MISSING, "flagged-genre", "genre: no data"), (MISSING, "flagged-keywords", "keyword: no data"),
+    (MISSING, "adult-certification", "certification: no data"), (MISSING, "nudity", "imdb.nudity: no data"),
+    (MISSING, "violence", "imdb.violence: no data"), (MISSING, "frightening", "imdb.frightening: no data"),
+]
+_THIN = "subject: only 1 known, too few to clear it"
+BEFORE_SCOPES = [
+    ("movie", {}, 0, (WAIT, _NO_DATA)),
+    ("movie", {}, 30, (REVIEW, [("expired", None, "no data after 24 hours"), *_NO_DATA])),
+    ("movie", {"_duplicate": "duplicate of 7"}, 0, (REVIEW, [("duplicate", None, "duplicate of 7")])),
+    ("movie", {"_no_title": True}, 0, (REVIEW, [(IDENTITY, None, "the post carries no title")])),
+    ("movie", {"_identity": {"ok": False, "text": "TMDB matched another year"}}, 0,
+     (REVIEW, [(IDENTITY, None, "could not confirm this is the same title"),
+               (IDENTITY, None, "TMDB matched another year")])),
+    ("movie", {"genre": [10402], "keyword": [], "certification": {"US": "R"}, **_CLEAR_GUIDE}, 0,
+     (REVIEW, [(RULE, "flagged-genre", "genre: 10402")])),
+    ("movie", {"genre": [], "keyword": ["old lighthouse"], "certification": {"US": "R"}, **_CLEAR_GUIDE,
+               "imdb.violence": _SEVERE, "imdb.nudity": _SPLIT}, 0,
+     (REJECT, [(RULE, "violence", "imdb.violence: severe"), (RULE, "flagged-keywords", "keyword: old lighthouse"),
+               (RULE, "nudity", "imdb.nudity: labelled mild, but 45% of the votes are moderate or worse")])),
+    ("movie", {"genre": [], "keyword": [], "certification": {"US": "PG"}, **_CLEAR_GUIDE,
+               "_identity": {"ok": True, "text": "same title and year"}}, 0,
+     (APPROVE, [("clear", None, "same title and year"), ("clear", None, "no rule hit (6 checked)")])),
+    ("series", {"keyword": [], "certification": {"US": "TV-14"}, **_CLEAR_GUIDE,
+                "imdb.frightening": {"unavailable": "imdb_guide"}}, 0,
+     (WAIT, [(UNAVAILABLE, "frightening", "imdb.frightening: integrations.imdb_guide is not enabled")])),
+    ("ebook", {"subject": ["Beekeeping"]}, 0, (REVIEW, [(RULE, "subject-a", "subject: Beekeeping")])),
+    ("ebook", {"subject": {"partial": ["history"]}}, 0,
+     (APPROVE, [(MISSING, "subject-a", _THIN), (MISSING, "subject-b", _THIN), (MISSING, "subject-c", _THIN)])),
+    ("magazine", {}, 0, (APPROVE, [("type", None, "magazine is always approved")])),
+    ("music", {}, 0, (REVIEW, [("type", None, "music is always reviewed by hand")])),
+]
+
+
+class ScopeTests(unittest.TestCase):
+    """Scoped policies: the first scope whose `when` holds gives the type settings and the rules."""
+
+    def test_the_first_scope_whose_when_is_true_applies_and_a_missing_when_does_not(self) -> None:
+        p = scoped({"id": "kids", "when": KIDS}, {"id": "telegram", "when": TELEGRAM},
+                   {"id": "late", "when": {"check": "time_window", "between": ["22:00", "06:00"]}})
+        cases = (
+            ({"source": ["seerr"], "sender": ["17"]}, "kids"),
+            # Both would match; the first in the file wins.
+            ({"source": ["group"], "sender": ["17"], "time_window": "23:00"}, "telegram"),
+            # The sender is not recorded: `all` cannot be settled, so the scope does not apply.
+            ({"source": ["seerr"], "sender": {"missing": "the item does not record its sender"}}, None),
+            ({"source": ["seerr"], "sender": ["99"], "time_window": "12:00"}, None),
+            ({"source": ["seerr"], "sender": ["99"], "time_window": "23:30"}, "late"),
+            # An old snapshot with none of the context signals matches no scope.
+            ({}, None),
+        )
+        for signals, expected in cases:
+            with self.subTest(signals=signals):
+                found = applying_scope(p, signals)
+                self.assertEqual(found.id if found is not None else None, expected)
+
+    def test_a_scope_s_types_override_only_the_fields_it_gives(self) -> None:
+        p = scoped(
+            {"id": "telegram", "when": TELEGRAM, "types": {"movie": {"when_data_missing": "approve"}}},
+            rules=[GUIDE | {"id": "violence"}],
+            types={"movie": {"mode": "rules", "when_data_missing": "wait", "max_wait_hours": 48}},
+        )
+        scope = p.scopes[0]
+        self.assertEqual(type_policy(p, "movie", scope), TypePolicy(mode="rules", when_data_missing="approve",
+                                                                    max_wait_hours=48))
+        self.assertEqual(type_policy(p, "movie"), TypePolicy(mode="rules", when_data_missing="wait", max_wait_hours=48))
+        self.assertEqual(type_policy(p, "series", scope), type_policy(p, "series"))
+        missing = {"imdb.violence": {"missing": "parents guide not fetched"}}
+        self.assertEqual(evaluate(movie(), {**missing, "source": ["group"]}, p).outcome, APPROVE)
+        self.assertEqual(evaluate(movie(), {**missing, "source": ["seerr"]}, p).outcome, WAIT)
+
+    def test_a_scope_s_rules_run_before_the_base_rules_and_skip_leaves_base_rules_out(self) -> None:
+        base = [
+            {"id": "big", "check": "size_gb", "at_least": 50},
+            {"id": "trusted", "check": "release_group", "any_of": ["GOOD"], "on_hit": "approve"},
+        ]
+        p = scoped(
+            {"id": "telegram", "when": TELEGRAM, "skip": ["trusted"],
+             "rules": [{"id": "tg-trusted", "check": "release_group", "any_of": ["GOOD"], "on_hit": "approve"}]},
+            {"id": "kids", "when": KIDS, "skip": ["big"]},
+            rules=base,
+        )
+        self.assertEqual([r.id for r in applicable_rules(p, "movie", p.scopes[0])], ["tg-trusted", "big"])
+        self.assertEqual([r.id for r in applicable_rules(p, "movie", p.scopes[1])], ["trusted"])
+        self.assertEqual([r.id for r in applicable_rules(p, "movie")], ["big", "trusted"])
+        big_good = {"size_gb": 80, "release_group": ["GOOD"]}
+        # The scope's approve rule runs first and ends the walk before the base review rule.
+        decision = evaluate(movie(), {**big_good, "source": ["group"]}, p)
+        self.assertEqual((decision.outcome, decision.reasons[0].rule), (APPROVE, "tg-trusted"))
+        # Under the base policy the review rule comes first.
+        decision = evaluate(movie(), {**big_good, "source": ["seerr"], "sender": ["5"]}, p)
+        self.assertEqual((decision.outcome, decision.reasons[0].rule), (REVIEW, "big"))
+        # A skipped rule is not checked at all.
+        decision = evaluate(movie(), {"size_gb": 80, "release_group": ["BAD"], "source": ["seerr"], "sender": ["17"]}, p)
+        self.assertEqual(decision.outcome, APPROVE)
+        self.assertEqual(decision.reasons[-2].text, "no rule hit (1 checked)")
+
+    def test_every_decision_under_a_scope_ends_with_the_scope_reason_and_a_settings_review_still_leads_with_its_setting(
+        self,
+    ) -> None:
+        p = scoped(
+            {"id": "telegram", "when": TELEGRAM, "types": {"music": {"mode": "never"}, "magazine": {"mode": "always"}}},
+            rules=[{"id": "big", "types": ["movie"], "check": "size_gb", "at_least": 50}],
+        )
+        tg = {"source": ["group"]}
+        cases = (
+            (movie(), {**tg, "_duplicate": "duplicate of 7"}, REVIEW),
+            (movie(media_type="music"), tg, REVIEW),
+            (movie(media_type="magazine"), tg, APPROVE),
+            (movie(media_type="ebook"), tg, REVIEW),
+            (movie(), {**tg, "_no_title": True}, REVIEW),
+            (movie(), {**tg, "size_gb": 80}, REVIEW),
+            (movie(), {**tg, "size_gb": 4}, APPROVE),
+            (movie(), tg, WAIT),
+        )
+        for item, signals, outcome in cases:
+            with self.subTest(media_type=item.media_type, signals=signals):
+                decision = evaluate(item, signals, p, now=NOW)
+                self.assertEqual(decision.outcome, outcome)
+                self.assertEqual(decision.reasons[-1], under("telegram"))
+                self.assertNotEqual(decision.reasons[0].kind, SCOPE)
+        held = evaluate(movie(media_type="music"), tg, p)
+        self.assertTrue(is_settings_review(held.reasons_json()))
+        shadow = act(evaluate(movie(), {**tg, "size_gb": 4}, p), "shadow")
+        self.assertEqual((shadow.reasons[0].kind, shadow.reasons[-1]), ("shadow", under("telegram")))
+        # The base policy says nothing about scopes.
+        self.assertNotIn(SCOPE, [r.kind for r in evaluate(movie(), {"source": ["seerr"], "size_gb": 4}, p).reasons])
+
+    def test_needed_signals_follows_the_applying_scope_and_is_the_union_without_a_snapshot(self) -> None:
+        p = scoped(
+            {"id": "telegram", "when": TELEGRAM, "skip": ["big"], "rules": [GUIDE | {"id": "violence"}]},
+            {"id": "kids", "when": KIDS, "types": {"movie": {"mode": "never"}}},
+            rules=[{"id": "big", "check": "size_gb", "at_least": 50}],
+        )
+        self.assertEqual(needed_signals(p, "movie", {"source": ["group"]}), {"imdb.violence"})
+        self.assertEqual(needed_signals(p, "movie", {"source": ["seerr"], "sender": ["5"]}), {"size_gb"})
+        self.assertEqual(needed_signals(p, "movie", {"source": ["seerr"], "sender": ["17"]}), set())
+        self.assertEqual(needed_signals(p, "movie"), {"size_gb", "imdb.violence"})
+        self.assertEqual(needed_signals(p, "ebook", {"source": ["group"]}), set())
+        self.assertEqual(needed_signals(p, "ebook"), {"size_gb"})
+
+    def test_compare_picks_each_row_s_scope_from_its_stored_snapshot(self) -> None:
+        def row(item_id, snapshot, outcome):
+            return SimpleNamespace(id=item_id, title=f"t{item_id}", media_type=MediaType.MOVIE, created_at=NOW,
+                                   auto_decided_at=NOW, signals=snapshot, policy_outcome=outcome)
+
+        missing = {"imdb.violence": {"missing": "parents guide not fetched"}}
+        rows = [
+            row(1, {**missing, "source": ["group"]}, WAIT),
+            row(2, {**missing, "source": ["seerr"]}, WAIT),
+            # Stored before the scope signals existed: no scope applies.
+            row(3, dict(missing), WAIT),
+        ]
+        p = scoped({"id": "telegram", "when": TELEGRAM, "types": {"movie": {"when_data_missing": "approve"}}},
+                   rules=[GUIDE | {"id": "violence"}])
+        impact = compare(rows, p, now=NOW)
+        self.assertEqual([(c["item_id"], c["after"]) for c in impact.changed], [(1, APPROVE)])
+        self.assertEqual(impact.changed[0]["reasons"][-1], "decided under the scope telegram")
+        self.assertEqual(impact.counts[WAIT], 2)
+
+    def test_worth_rerunning_a_type_review_sees_a_scope_that_now_takes_the_type(self) -> None:
+        held = [Reason("type", None, "ebook is always reviewed by hand").to_json()]
+        base = {"ebook": {"mode": "never"}}
+        for scope, expected in (
+            (None, False),
+            ({"id": "telegram", "when": TELEGRAM, "types": {"ebook": {"mode": "always"}}}, True),
+            ({"id": "telegram", "when": TELEGRAM, "types": {"ebook": {"mode": "rules"}},
+              "rules": [{"id": "thick", "check": "pages", "at_least": 900}]}, True),
+            # In mode rules with no rule that applies, the type is still held.
+            ({"id": "telegram", "when": TELEGRAM, "types": {"ebook": {"mode": "rules"}}}, False),
+        ):
+            with self.subTest(scope=scope):
+                p = scoped(*([scope] if scope else []), types=base)
+                self.assertEqual(worth_rerunning(held, None, "v", "ebook", p), expected)
+
+    def test_a_policy_without_scopes_decides_as_before(self) -> None:
+        p = policy_fixture.config().policy
+        self.assertEqual(p.scopes, [])
+        for media_type, signals, hours, (outcome, reasons) in BEFORE_SCOPES:
+            with self.subTest(media_type=media_type, signals=signals, hours=hours):
+                item = policy_fixture.item(media_type=media_type, created_at=NOW - timedelta(hours=hours))
+                decision = evaluate(item, signals, p, now=NOW, default_min_votes=20)
+                self.assertEqual(
+                    (decision.outcome, [(r.kind, r.rule, r.text) for r in decision.reasons]),
+                    (outcome, [tuple(r) for r in reasons]),
+                )
+                # The context signals every stored snapshot carries change nothing without a scope.
+                decision = evaluate(item, {**signals, "source": ["feed"], "sender": ["5"]}, p, now=NOW,
+                                    default_min_votes=20)
+                self.assertEqual(decision.outcome, outcome)
 
 
 class PolicyVersionTests(unittest.TestCase):

@@ -26,7 +26,7 @@ from sqlalchemy import and_, func, not_, or_, select, text
 
 from vettarr import dryrun, events
 from vettarr.delivery import LABELS as TARGET_LABELS
-from vettarr.checker.policy import AUTO_APPROVE_OFF
+from vettarr.checker.policy import AUTO_APPROVE_OFF, SCOPE_LEAD
 from vettarr.config.runtime import get_config
 from vettarr.database import async_session
 from vettarr.models import AutoDecision, Event, ItemStatus, MediaItem
@@ -270,11 +270,12 @@ def _why(reasons: tuple[str, ...]) -> tuple[str, ...]:
 
     A review the settings made (shadow mode, auto-approval switched off) leads
     with that and then lists what the policy found, which is often why it
-    would have approved. Only the lead is why the item was held.
+    would have approved. Only the lead is why the item was held. The scope a
+    decision was made under is where, never why, and is left out.
     """
     if reasons and (reasons[0].startswith(SHADOW_LEAD) or reasons[0] == AUTO_APPROVE_OFF):
         return reasons[:1]
-    return reasons
+    return tuple(r for r in reasons if not r.startswith(SCOPE_LEAD))
 
 
 def top_reasons(decided: list[Decided], limit: int = TOP_REASONS) -> list[Share]:

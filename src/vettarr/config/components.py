@@ -41,9 +41,9 @@ def components(cfg: Config) -> list[tuple[str, str]]:
     for name in ("prowlarr", "qbittorrent", "radarr", "sonarr", "seerr", "tmdb", "google_books", "jellyfin"):
         if integ.enabled(name):
             out.append((name, "integration"))
-    imdb_rules = [
-        r.id for r in cfg.policy.rules if any(SIGNALS[leaf.check].group == "parents_guide" for leaf in r.leaves())
-    ]
+    # The base rules and every scope's own.
+    rules = [*cfg.policy.rules, *(r for scope in cfg.policy.scopes for r in scope.rules)]
+    imdb_rules = [r.id for r in rules if any(SIGNALS[leaf.check].group == "parents_guide" for leaf in r.leaves())]
     if integ.imdb_guide.enabled and imdb_rules:
         out.append(("imdb_guide", "used by rules " + ", ".join(imdb_rules)))
 
@@ -56,7 +56,7 @@ def components(cfg: Config) -> list[tuple[str, str]]:
     if delivered:
         out.append(("delivery", ", ".join(f"{t} -> {d}" for t, d in delivered.items())))
     if cfg.policy.auto_approve != "off":
-        out.append(("policy", f"auto_approve {cfg.policy.auto_approve}, {len(cfg.policy.rules)} rules"))
+        out.append(("policy", f"auto_approve {cfg.policy.auto_approve}, {len(rules)} rules"))
     if cfg.notify is not None:
         out.append(("notify", "events are posted to notify.url"))
     return out

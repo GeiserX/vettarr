@@ -8,29 +8,36 @@ replayed without fetching anything again.
 
 How a decision is reached, in order:
 
-1. A duplicate of something already settled goes to a person.
-2. The type policy: ``always`` approves, ``never`` goes to a person. So
+1. The scope: the first ``policy.scopes`` entry whose ``when`` is true for
+   the item's source, sender and clock gives the type policies and rules
+   below; otherwise the base policy. Every reason list ends with the scope
+   that decided.
+2. A duplicate of something already settled goes to a person.
+3. The type policy: ``always`` approves, ``never`` goes to a person. So
    does a type in mode ``rules`` that no rule applies to: nothing was
    checked, and nothing unchecked is approved.
-3. An item with no title goes to a person; a TMDB match that is not the
+4. An item with no title goes to a person; a TMDB match that is not the
    title the post asked for goes to a person whenever a rule reads the TMDB
    record or IMDb data (that data would be another title's).
-4. The rules that apply to the type, in file order. A rule whose condition is
-   true *hits*: ``reject`` and ``review`` hits are all collected, ``notify``
-   hits are recorded and change nothing, and the first ``approve`` hit ends
-   the walk when no earlier rule hit or lacked its data. A rule that combines
-   conditions (``all``, ``any``, ``not``) hits when the combination is true;
-   it lacks its data when the combination cannot be settled without a
-   missing part.
-5. Any reject hit rejects; any review hit reviews; an approve hit approves.
-6. Otherwise, a rule whose data is missing (or whose integration is off)
+5. The rules that apply to the type: the scope's own first, then the base
+   rules it does not skip, each list in file order. A rule whose condition
+   is true *hits*: ``reject`` and ``review`` hits are all collected,
+   ``notify`` hits are recorded and change nothing, and the first
+   ``approve`` hit ends the walk when no earlier rule hit or lacked its
+   data. A rule that combines conditions (``all``, ``any``, ``not``) hits
+   when the combination is true; it lacks its data when the combination
+   cannot be settled without a missing part.
+6. Any reject hit rejects; any review hit reviews; an approve hit approves.
+7. Otherwise, a rule whose data is missing (or whose integration is off)
    hands the item to the type's ``when_data_missing``: ``approve``,
    ``review``, or ``wait`` until ``max_wait_hours`` have passed since the
    item arrived, and then review.
-7. Otherwise nothing hit, and the item is approved.
+8. Otherwise nothing hit, and the item is approved.
 
 The data a type needs is exactly what its rules read: a policy with no
-keyword rule never waits for keywords.
+keyword rule never waits for keywords. A scope's ``when`` reads only the
+signals known before any lookup, so the scope, and with it what to fetch,
+is settled before anything is fetched.
 
 A signal snapshot is a JSON-ready mapping, signal name to value:
 
@@ -59,7 +66,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from vettarr.checker.content_rules import IDENTITY_UNCONFIRMED
-from vettarr.config.schema import Condition, Policy, Rule, TypePolicy
+from vettarr.config.schema import Condition, Policy, Rule, Scope, TypePolicy
 from vettarr.config.signals import MEDIA_TYPES, RESOLUTIONS, SEVERITIES, SIGNALS
 
 APPROVE = "approve"
@@ -69,8 +76,9 @@ WAIT = "wait"
 OUTCOMES = (APPROVE, REVIEW, REJECT, WAIT)
 
 # Reason kinds. `rule` is a rule that hit; `missing` and `unavailable` a rule
-# that could not be checked; `clear` what an approval rested on; `legacy` a
-# reason written before reasons were structured.
+# that could not be checked; `clear` what an approval rested on; `scope` the
+# scope a decision was made under, always the last reason; `legacy` a reason
+# written before reasons were structured.
 RULE = "rule"
 MISSING = "missing"
 UNAVAILABLE = "unavailable"
@@ -82,6 +90,7 @@ SETTING = "setting"
 SHADOW = "shadow"
 EXPIRED = "expired"
 CLEAR = "clear"
+SCOPE = "scope"
 LEGACY = "legacy"
 
 # Reasons a review came from the settings, not from anything found about the
@@ -93,6 +102,8 @@ META_IDENTITY = "_identity"
 META_NO_TITLE = "_no_title"
 
 AUTO_APPROVE_OFF = "auto-approval is switched off"
+# How the reason of a decision made under a scope starts; the scope's id follows.
+SCOPE_LEAD = "decided under the scope "
 NO_TITLE = "the post carries no title"
 # How 0.11 worded a review for a type outside its auto-approve list:
 # "<type> is not in the auto-approve list".
@@ -481,26 +492,49 @@ def _media_type(item: Any) -> str:
     return str(getattr(media_type, "value", media_type) or "unknown")
 
 
-def type_policy(policy: Policy, media_type: str) -> TypePolicy:
+def applying_scope(policy: Policy, signals: Mapping[str, Any]) -> Scope | None:
+    """The first scope whose ``when`` is true for these signals; None means the base policy.
+
+    A ``when`` that cannot be settled (its signal is missing) does not pick
+    its scope: only a true one does.
+    """
+    for scope in policy.scopes:
+        if check_condition(scope.when, signals, policy.lists, 0)[0] is True:
+            return scope
+    return None
+
+
+def type_policy(policy: Policy, media_type: str, scope: Scope | None = None) -> TypePolicy:
     if media_type not in MEDIA_TYPES:
         return TypePolicy(mode="never")
-    return policy.type_policy(media_type)
+    return policy.type_policy(media_type, scope)
 
 
 def no_rules_text(media_type: str) -> str:
     return f"no rule applies to {media_type}, so nothing was checked"
 
 
-def applicable_rules(policy: Policy, media_type: str) -> list[Rule]:
-    """The rules that read a signal of this type, in file order."""
-    return [rule for rule in policy.rules if media_type in rule.media_types]
+def applicable_rules(policy: Policy, media_type: str, scope: Scope | None = None) -> list[Rule]:
+    """The rules that read a signal of this type: a scope's own first, then the base rules it does not skip."""
+    rules = policy.rules
+    if scope is not None:
+        rules = [*scope.rules, *(rule for rule in policy.rules if rule.id not in scope.skip)]
+    return [rule for rule in rules if media_type in rule.media_types]
 
 
-def needed_signals(policy: Policy, media_type: str) -> set[str]:
-    """The signals a decision about this type reads; nothing else is fetched."""
-    if type_policy(policy, media_type).mode != "rules":
-        return set()
-    return {leaf.check for rule in applicable_rules(policy, media_type) for leaf in rule.leaves()}
+def needed_signals(policy: Policy, media_type: str, signals: Mapping[str, Any] | None = None) -> set[str]:
+    """The signals a decision about this type reads; nothing else is fetched.
+
+    With ``signals`` (at least the scope signals), what the applying scope
+    reads. Without, everything the base policy or any scope would read: a
+    caller that cannot tell the scope fetches enough for any of them.
+    """
+    scopes = [applying_scope(policy, signals)] if signals is not None else [None, *policy.scopes]
+    return {
+        leaf.check
+        for scope in scopes if type_policy(policy, media_type, scope).mode == "rules"
+        for rule in applicable_rules(policy, media_type, scope) for leaf in rule.leaves()
+    }
 
 
 def _as_utc(moment: datetime) -> datetime:
@@ -518,21 +552,24 @@ def evaluate(
     """Decide one item from its signals. See the module docstring for the order."""
     version = policy_version(policy)
     media_type = _media_type(item)
+    scope = applying_scope(policy, signals)
+    # Last, so what leads a decision is what it leads with without scopes.
+    under = (Reason(SCOPE, scope.id, f"{SCOPE_LEAD}{scope.id}"),) if scope is not None else ()
 
     def done(outcome: str, *reasons: Reason) -> Decision:
-        return Decision(outcome, tuple(reasons), version)
+        return Decision(outcome, (*reasons, *under), version)
 
     duplicate = signals.get(META_DUPLICATE)
     if duplicate:
         return done(REVIEW, Reason(DUPLICATE, None, str(duplicate)))
 
-    tp = type_policy(policy, media_type)
+    tp = type_policy(policy, media_type, scope)
     if tp.mode == "always":
         return done(APPROVE, Reason(TYPE, None, f"{media_type} is always approved"))
     if tp.mode == "never":
         return done(REVIEW, Reason(TYPE, None, f"{media_type} is always reviewed by hand"))
 
-    rules = applicable_rules(policy, media_type)
+    rules = applicable_rules(policy, media_type, scope)
     if not rules:
         # Mode `rules` with nothing to check: approving would approve unseen.
         return done(REVIEW, Reason(TYPE, None, no_rules_text(media_type)))
@@ -664,7 +701,8 @@ def worth_rerunning(
     Only a settings review qualifies, and only when the setting that made it
     has moved. Nothing under ``off``: every decision is held again with the
     same words. A type review only when the type would no longer be held by
-    its mode: it is ``always`` now, or in ``rules`` with a rule that applies.
+    its mode: it is ``always`` now, or in ``rules`` with a rule that applies,
+    under the base policy or any scope (the re-run decides under its own).
     A shadow review made by this same policy not while still in ``shadow``.
     """
     if policy.auto_approve == "off" or not is_settings_review(reasons, auto_reasons):
@@ -672,8 +710,11 @@ def worth_rerunning(
     kind = legacy_reasons(reasons, auto_reasons)[0].kind
     if kind == TYPE:
         name = str(getattr(media_type, "value", media_type) or "unknown")
-        mode = type_policy(policy, name).mode
-        return mode == "always" or (mode == "rules" and bool(applicable_rules(policy, name)))
+        for scope in (None, *policy.scopes):
+            mode = type_policy(policy, name, scope).mode
+            if mode == "always" or (mode == "rules" and applicable_rules(policy, name, scope)):
+                return True
+        return False
     if kind == SHADOW and policy.auto_approve == "shadow":
         return decided_version != policy_version(policy)
     return True

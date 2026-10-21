@@ -961,5 +961,55 @@ class QbtNameCacheTests(unittest.TestCase):
         self.assertEqual(results, [["Some Torrent"]] * 3)
 
 
+class ScopeLookupTests(unittest.TestCase):
+    """The scope is settled from the item before any lookup, and decides what is fetched."""
+
+    def _scoped(self):
+        from vettarr.config.schema import Scope
+
+        base = policy_fixture.config()
+        policy = base.policy.model_copy(update={
+            "rules": [r for r in base.policy.rules if r.is_group or not r.check.startswith("imdb.")],
+            "scopes": [
+                Scope.model_validate({"id": "kids", "when": {"check": "sender", "any_of": [17]},
+                                      "rules": [{"id": "kids-violence", "check": "imdb.violence",
+                                                 "at_least": "moderate"}]}),
+                Scope.model_validate({"id": "grown", "when": {"check": "sender", "any_of": [23]},
+                                      "skip": ["flagged-genre"]}),
+            ],
+        })
+        return base.model_copy(update={"policy": policy})
+
+    def test_the_guide_is_fetched_only_when_the_applying_scope_reads_it(self) -> None:
+        cfg = self._scoped()
+        fetch = mock.AsyncMock(return_value=full_guide())
+        for sender, expected in ((17, 1), (23, 0), (None, 0)):
+            with self.subTest(sender=sender):
+                fetch.reset_mock()
+                item = make_item(MOVIE_POST, title=MOVIE_TITLE, year=MOVIE_YEAR, media_type=MediaType.MOVIE,
+                                 sender_id=sender)
+                with (
+                    mock.patch.object(pipeline, "settings", Settings(cfg)),
+                    mock.patch.object(pipeline.tmdb_client, "search", mock.AsyncMock(return_value=matched_tmdb())),
+                    mock.patch.object(pipeline, "fetch_parents_guide", fetch),
+                ):
+                    asyncio.run(pipeline._run_content_check(FakeSession(item), item))
+                self.assertEqual(fetch.await_count, expected)
+
+    def test_context_signals_match_base_signals(self) -> None:
+        from vettarr.checker import gather
+
+        cfg = self._scoped()
+        for fields in ({}, {"sender_id": 17, "posted_at": NOW - timedelta(hours=30), "source_key": "feed"}):
+            with self.subTest(fields=fields):
+                item = make_item(MOVIE_POST, title=MOVIE_TITLE, media_type=MediaType.MOVIE, **fields)
+                context = gather.context_signals(item, cfg, NOW)
+                snapshot = gather.base_signals(item, cfg, tmdb=None, guide=None, book=None, book_looked_up=False,
+                                               duplicate_of=None, twin_of=None, now=NOW)
+                self.assertEqual(list(context), ["source", "time_window", "sender", "post_age_hours"])
+                self.assertEqual(context, {name: snapshot[name] for name in context})
+                self.assertEqual(context["source"], ["feed"])
+
+
 if __name__ == "__main__":
     unittest.main()
