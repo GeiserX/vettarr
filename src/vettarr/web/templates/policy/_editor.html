@@ -231,6 +231,12 @@
                     <span class="text-muted">(none ticked: all of them)</span>
                 </fieldset>
                 {% endif %}
+                <div class="sentence text-sm mt-3">
+                    <label for="rule-{{ i }}-when_missing">When its data is missing,</label>
+                    <select class="field-inline" id="rule-{{ i }}-when_missing" name="rule-{{ i }}-when_missing"{{ bad(e.when_missing, 'err-rule-' ~ i) }}>
+                        {% for value, label in rule_when_missing %}<option value="{{ value }}" {% if rule.when_missing == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+                    </select>
+                </div>
                 {% set rest = [] %}
                 {% for field, message in e.items() if field != 'id' %}{% set _ = rest.append(message) %}{% endfor %}
                 {{ error(rest|join('; '), 'err-rule-' ~ i) }}

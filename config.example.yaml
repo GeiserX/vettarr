@@ -317,6 +317,7 @@ policy:
       at_least: severe
       split_vote: 0.40                # also hits when 40% of votes are at or above
       on_hit: review
+      # when_missing: approve         # no votes yet: approve; default: the type's when_data_missing
     - id: nudity
       name: Nudity is moderate or more
       check: imdb.nudity

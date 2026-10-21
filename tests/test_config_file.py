@@ -151,6 +151,27 @@ class ValidationTests(unittest.TestCase):
             self.assertIn(known, errors[0])
         self.assertEqual(len(re.findall(r", ", errors[0].split("known signals: ")[1])) + 1, len(SIGNALS))
 
+    def test_when_missing_takes_wait_review_or_approve(self) -> None:
+        for mode in ("wait", "review", "approve"):
+            with self.subTest(mode=mode):
+                cfg = load_text(
+                    f"policy:\n  rules:\n    - {{id: r, check: seeders, at_least: 1, when_missing: {mode}}}\n"
+                    f"    - {{id: g, all: [{{check: year, at_most: 1999}}], when_missing: {mode}}}\n",
+                    "c.yaml", {},
+                )
+                self.assertEqual([r.when_missing for r in cfg.policy.rules], [mode, mode])
+        cfg = load_text("policy:\n  rules:\n    - {id: r, check: seeders, at_least: 1}\n", "c.yaml", {})
+        self.assertIsNone(cfg.policy.rules[0].when_missing)
+        self.assertEqual(
+            errors_of("policy:\n  rules:\n    - {id: r, check: seeders, at_least: 1, when_missing: skip}\n"),
+            ["c.yaml:3: policy.rules[0].when_missing: Input should be 'wait', 'review' or 'approve'"],
+        )
+        # It belongs to the rule, never to a condition inside it.
+        self.assertEqual(
+            errors_of("policy:\n  rules:\n    - {id: g, all: [{check: year, at_most: 1999, when_missing: wait}]}\n"),
+            ["c.yaml:3: policy.rules[0].all[0].when_missing: Extra inputs are not permitted"],
+        )
+
     def test_an_unknown_key_is_an_error_not_ignored(self) -> None:
         errors = errors_of("""
         web:

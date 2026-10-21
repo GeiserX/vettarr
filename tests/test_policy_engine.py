@@ -69,7 +69,7 @@ from vettarr.checker.policy import (
     worth_rerunning,
 )
 from vettarr.checker.tmdb_client import MATCH_WITH_YEAR, TMDBResult
-from vettarr.config.schema import Config, Policy, Rule, TypePolicy
+from vettarr.config.schema import Config, Policy, Rule, Scope, TypePolicy
 from vettarr.config.signals import SIGNALS
 from vettarr.models import (
     ItemStatus,
@@ -634,6 +634,133 @@ class ScopeTests(unittest.TestCase):
                 decision = evaluate(item, {**signals, "source": ["feed"], "sender": ["5"]}, p, now=NOW,
                                     default_min_votes=20)
                 self.assertEqual(decision.outcome, outcome)
+
+
+SEEDERS = {"check": "seeders", "at_least": 1}
+SIZE = {"check": "size_gb", "at_least": 50}
+YEAR = {"check": "year", "at_most": 1999}
+
+
+class MissingDataPerRuleTests(unittest.TestCase):
+    """A rule's `when_missing` says what its missing data does; unset, the type's `when_data_missing` says."""
+
+    WAITING = {"movie": {"mode": "rules", "when_data_missing": "wait", "max_wait_hours": 24}}
+
+    def test_a_rule_s_when_missing_approve_holds_nothing_and_its_gap_is_recorded(self) -> None:
+        p = policy(GUIDE | {"id": "violence", "when_missing": "approve"}, types=self.WAITING)
+        decision = evaluate(movie(), {}, p, now=NOW)
+        self.assertEqual(decision.outcome, APPROVE)
+        self.assertEqual(decision.reasons, (Reason(MISSING, "violence", "imdb.violence: no data"),))
+        # Its data, once in, is checked as ever.
+        severe = {"severity": "severe", "votes": 50, "breakdown": {"severe": 50}}
+        self.assertEqual(evaluate(movie(), {"imdb.violence": severe}, p, now=NOW).outcome, REVIEW)
+
+    def test_a_review_gap_beats_a_wait_gap_and_a_wait_gap_beats_an_approve_gap(self) -> None:
+        for modes, outcome in (
+            (("approve", "wait", "review"), REVIEW),
+            (("review", "approve", None), REVIEW),
+            (("approve", "wait", "approve"), WAIT),
+            (("approve", None, "approve"), WAIT),
+            (("approve", "approve", "approve"), APPROVE),
+        ):
+            with self.subTest(modes=modes):
+                rules = [
+                    check | {"id": f"r{n}", **({"when_missing": mode} if mode else {})}
+                    for n, (check, mode) in enumerate(zip((SEEDERS, SIZE, YEAR), modes))
+                ]
+                decision = evaluate(movie(), {}, policy(*rules, types=self.WAITING), now=NOW)
+                self.assertEqual(decision.outcome, outcome)
+                # Every gap is recorded, whatever it asked for.
+                self.assertEqual(sorted(r.rule for r in decision.reasons), ["r0", "r1", "r2"])
+        # A wait still ends in review once the type's max_wait_hours have passed.
+        p = policy(SEEDERS | {"id": "r0", "when_missing": "approve"}, SIZE | {"id": "r1", "when_missing": "wait"},
+                   types={"movie": {"mode": "rules", "when_data_missing": "approve", "max_wait_hours": 6}})
+        late = evaluate(policy_fixture.item(created_at=NOW - timedelta(hours=7)), {}, p, now=NOW)
+        self.assertEqual((late.outcome, late.reasons[0].text), (REVIEW, "no data after 6 hours"))
+
+    def test_a_review_names_first_the_gaps_that_asked_for_a_person(self) -> None:
+        rules = [SEEDERS | {"id": "r0", "when_missing": "approve"},
+                 SIZE | {"id": "r1", "when_missing": "review"},
+                 YEAR | {"id": "r2"},
+                 GUIDE | {"id": "r3", "when_missing": "review"}]
+        decision = evaluate(movie(), {}, policy(*rules, types=self.WAITING), now=NOW)
+        self.assertEqual((decision.outcome, [r.rule for r in decision.reasons]),
+                         (REVIEW, ["r1", "r3", "r0", "r2"]))
+
+    def test_a_waived_gap_still_stops_an_approve_rule_from_ending_the_walk(self) -> None:
+        p = policy(
+            GUIDE | {"id": "violence", "when_missing": "approve"},
+            {"id": "trusted", "check": "release_group", "any_of": ["GOOD"], "on_hit": "approve"},
+            SIZE | {"id": "big", "on_hit": "reject"},
+            types=self.WAITING,
+        )
+        decision = evaluate(movie(), {"release_group": ["GOOD"], "size_gb": 80}, p, now=NOW)
+        self.assertEqual((decision.outcome, decision.reasons[0].rule), (REJECT, "big"))
+
+    def test_a_hit_still_reviews_when_every_gap_is_waived(self) -> None:
+        p = policy(GUIDE | {"id": "violence", "when_missing": "approve"}, SIZE | {"id": "big"},
+                   types={"movie": {"mode": "rules", "when_data_missing": "approve"}})
+        decision = evaluate(movie(), {"size_gb": 80}, p, now=NOW)
+        self.assertEqual((decision.outcome, [r.rule for r in decision.reasons]), (REVIEW, ["big"]))
+
+    def test_telegram_posts_with_no_data_approve_and_seerr_requests_wait(self) -> None:
+        """The maintainer's case: a concert with no IMDb votes waited 24 hours for votes that never came."""
+        base = policy_fixture.config().policy
+        telegram = Scope.model_validate({
+            "id": "telegram", "name": "Telegram posts with no data are approved", "when": TELEGRAM,
+            "types": {"movie": {"when_data_missing": "approve"}, "series": {"when_data_missing": "approve"}},
+        })
+        p = base.model_copy(update={"scopes": [telegram]})
+        concert = {"genre": [], "keyword": [], "_identity": {"ok": True, "text": "same title and year"}}
+        gaps = [(MISSING, "adult-certification", "certification: no data"), (MISSING, "nudity", "imdb.nudity: no data"),
+                (MISSING, "violence", "imdb.violence: no data"), (MISSING, "frightening", "imdb.frightening: no data")]
+        decision = evaluate(movie(), {**concert, "source": ["group"]}, p, now=NOW, default_min_votes=20)
+        self.assertEqual(decision.outcome, APPROVE)
+        self.assertEqual([(r.kind, r.rule, r.text) for r in decision.reasons],
+                         [*gaps, (SCOPE, "telegram", "decided under the scope telegram")])
+        # The same post from the bot inbox too; a Seerr request waits as the base policy says.
+        self.assertEqual(evaluate(movie(), {**concert, "source": ["inbox"]}, p, now=NOW).outcome, APPROVE)
+        seerr = evaluate(movie(), {**concert, "source": ["seerr"], "sender": ["17"]}, p, now=NOW)
+        self.assertEqual((seerr.outcome, [(r.kind, r.rule, r.text) for r in seerr.reasons]), (WAIT, gaps))
+        # A finding is not missing data: a hit, a wrong match and no title still go to a person.
+        severe = {"severity": "severe", "votes": 50, "breakdown": {"severe": 50}}
+        hit_ = evaluate(movie(), {**concert, "source": ["group"], "imdb.violence": severe}, p, now=NOW)
+        self.assertEqual((hit_.outcome, hit_.reasons[0].rule), (REJECT, "violence"))
+        for found in ({"_identity": {"ok": False, "text": "TMDB matched another year"}}, {"_no_title": True}):
+            with self.subTest(found=found):
+                self.assertEqual(evaluate(movie(), {**concert, "source": ["group"], **found}, p, now=NOW).outcome,
+                                 REVIEW)
+
+    def test_the_type_s_when_data_missing_is_the_default(self) -> None:
+        rules = [SEEDERS | {"id": "a"}, SIZE | {"id": "b"}]
+        gaps = [(MISSING, "a", "seeders: no data"), (MISSING, "b", "size_gb: no data")]
+        expired = [("expired", None, "no data after 24 hours"), *gaps]
+        for wdm, (fresh, late) in {
+            "approve": ((APPROVE, gaps), (APPROVE, gaps)),
+            "review": ((REVIEW, gaps), (REVIEW, gaps)),
+            "wait": ((WAIT, gaps), (REVIEW, expired)),
+        }.items():
+            types = {"movie": {"mode": "rules", "when_data_missing": wdm, "max_wait_hours": 24}}
+            unset = policy(*rules, types=types)
+            # The same rules saying it themselves, under a type that says something else.
+            other = "review" if wdm != "review" else "approve"
+            said = policy(*(r | {"when_missing": wdm} for r in rules),
+                          types={"movie": {"mode": "rules", "when_data_missing": other, "max_wait_hours": 24}})
+            for hours, (outcome, reasons) in ((0, fresh), (30, late)):
+                with self.subTest(when_data_missing=wdm, hours=hours):
+                    item = policy_fixture.item(created_at=NOW - timedelta(hours=hours))
+                    for p in (unset, said):
+                        decision = evaluate(item, {}, p, now=NOW)
+                        self.assertEqual((decision.outcome, [(r.kind, r.rule, r.text) for r in decision.reasons]),
+                                         (outcome, [tuple(r) for r in reasons]))
+        # And the fixture policy, with no when_missing anywhere, decides as it did before.
+        p = policy_fixture.config().policy
+        for media_type, signals, hours, (outcome, reasons) in BEFORE_SCOPES:
+            with self.subTest(media_type=media_type, signals=signals, hours=hours):
+                item = policy_fixture.item(media_type=media_type, created_at=NOW - timedelta(hours=hours))
+                decision = evaluate(item, signals, p, now=NOW, default_min_votes=20)
+                self.assertEqual((decision.outcome, [(r.kind, r.rule, r.text) for r in decision.reasons]),
+                                 (outcome, [tuple(r) for r in reasons]))
 
 
 class PolicyVersionTests(unittest.TestCase):

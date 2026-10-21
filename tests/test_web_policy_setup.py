@@ -751,6 +751,31 @@ class PolicyAsWrittenTests(PolicyCase):
         self.assertEqual(self.rules()[1]["split_vote"], 0.333)
 
 
+class PolicyWhenMissingTests(PolicyCase):
+    """A rule's `when_missing` is a select on its card, saved when chosen and left unsaid when not."""
+
+    def test_when_missing_is_a_select_that_saves_and_is_left_unsaid_when_unset(self) -> None:
+        page = self.get("/policy").text
+        data = forms(page, "/policy")[0]
+        self.assertEqual((data["rule-0-when_missing"], data["rule-1-when_missing"]), ([""], [""]))
+        select = re.search(r'<select[^>]*id="rule-1-when_missing".*?</select>', page, re.S).group(0)
+        self.assertEqual(re.findall(r'<option value="([^"]*)"', select), ["", "wait", "review", "approve"])
+        self.assertIn("do as the type says", select)
+        # Unset, nothing is written.
+        self.send()
+        self.unchanged()
+        self.send(rule__1__when_missing="approve")
+        rules = loader.plain(loader.read_document(self.path))["policy"]["rules"]
+        self.assertEqual(rules[1]["when_missing"], "approve")
+        self.assertNotIn("when_missing", rules[0])
+        self.assertEqual(self.file().policy.rules[1].when_missing, "approve")
+        # The page shows it as saved; set back to the type's, it is gone again.
+        self.assertEqual(forms(self.get("/policy").text, "/policy")[0]["rule-1-when_missing"], ["approve"])
+        self.send(rule__1__when_missing="")
+        self.assertNotIn("when_missing", self.path.read_text())
+        self.assertIsNone(self.file().policy.rules[1].when_missing)
+
+
 class PolicySaveTests(PolicyCase):
     def test_save_writes_the_form_to_the_file_and_says_to_restart(self) -> None:
         resp = self.send(

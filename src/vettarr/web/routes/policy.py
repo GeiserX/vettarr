@@ -56,6 +56,8 @@ AUTO_APPROVE = (
 )
 MODES = (("rules", "by the rules"), ("always", "always approve"), ("never", "always hold for me"))
 WHEN_MISSING = (("wait", "wait for it"), ("review", "hold for review"), ("approve", "approve anyway"))
+# A rule's own choice, first the one that leaves it to the type.
+RULE_WHEN_MISSING = (("", "do as the type says"), *WHEN_MISSING)
 OPERATOR_WORDS = {
     "at_least": "is at least",
     "at_most": "is at most",
@@ -97,7 +99,7 @@ def _blank_rule(rule_id: str, check: str = DEFAULT_SIGNAL, operator: str | None 
         "id": rule_id, "name": "", "check": check, "operator": operator or SIGNALS[check].operators[0],
         "severity": "severe", "number": "", "low": "", "high": "", "flag": "true", "list": "", "words": "",
         "cert": "", "resolution": RESOLUTIONS[0], "from": "", "to": "", "types": [], "on_hit": "review",
-        "min_votes": "", "split": "", "errors": {},
+        "when_missing": "", "min_votes": "", "split": "", "errors": {},
     }
 
 
@@ -126,6 +128,7 @@ def _rule_form(rule: Rule, raw: dict[str, Any]) -> dict[str, Any]:
     form = _blank_rule(str(raw.get("id") or rule.id), rule.check, operator)
     form.update(
         name=str(raw.get("name") or rule.name or ""), types=list(rule.types), on_hit=rule.on_hit,
+        when_missing=rule.when_missing or "",
         min_votes="" if rule.min_votes is None else str(rule.min_votes),
         split="" if rule.split_vote is None else f"{rule.split_vote * 100:g}",
     )
@@ -194,6 +197,7 @@ def read_form(data: FormData) -> dict[str, Any]:
             rule[name] = text(f"rule-{i}-{name}") or rule[name]
         rule["flag"] = text(f"rule-{i}-flag") or "true"
         rule["on_hit"] = text(f"rule-{i}-on_hit") or "review"
+        rule["when_missing"] = text(f"rule-{i}-when_missing")
         rule["words"] = str(data.get(f"rule-{i}-words") or "")
         rule["types"] = [t for t in data.getlist(f"rule-{i}-types") if t in signal.types]
         rules.append(rule)
@@ -327,6 +331,8 @@ def _rule_yaml(rule: dict[str, Any], old: dict[str, Any], shown: dict[str, Any] 
         out["min_votes"] = old["min_votes"] if kept("min_votes", "min_votes") else configfile.number(rule["min_votes"])
     if rule["on_hit"] != "review" or "on_hit" in old:
         out["on_hit"] = old["on_hit"] if kept("on_hit", "on_hit") else rule["on_hit"]
+    if rule["when_missing"] or kept("when_missing", "when_missing"):
+        out["when_missing"] = old["when_missing"] if kept("when_missing", "when_missing") else rule["when_missing"]
     return out
 
 
@@ -469,6 +475,7 @@ def _context(
         "scopes": _scopes(state),
         "warnings": _warnings(config) if config is not None else [],
         "auto_approve_options": AUTO_APPROVE, "modes": MODES, "when_missing": WHEN_MISSING,
+        "rule_when_missing": RULE_WHEN_MISSING,
         "operator_words": OPERATOR_WORDS, "on_hit": ON_HIT, "mark": MARK, "signals": SIGNALS,
         "groups": [(label, [s.name for s in SIGNALS.values() if s.group == group]) for group, label in GROUPS],
         "severities": SEVERITIES, "resolutions": RESOLUTIONS, "media_types": MEDIA_TYPES, "outcomes": OUTCOMES,
