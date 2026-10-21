@@ -671,12 +671,21 @@ class MissingDataPerRuleTests(unittest.TestCase):
                 decision = evaluate(movie(), {}, policy(*rules, types=self.WAITING), now=NOW)
                 self.assertEqual(decision.outcome, outcome)
                 # Every gap is recorded, whatever it asked for.
-                self.assertEqual([r.rule for r in decision.reasons], ["r0", "r1", "r2"])
+                self.assertEqual(sorted(r.rule for r in decision.reasons), ["r0", "r1", "r2"])
         # A wait still ends in review once the type's max_wait_hours have passed.
         p = policy(SEEDERS | {"id": "r0", "when_missing": "approve"}, SIZE | {"id": "r1", "when_missing": "wait"},
                    types={"movie": {"mode": "rules", "when_data_missing": "approve", "max_wait_hours": 6}})
         late = evaluate(policy_fixture.item(created_at=NOW - timedelta(hours=7)), {}, p, now=NOW)
         self.assertEqual((late.outcome, late.reasons[0].text), (REVIEW, "no data after 6 hours"))
+
+    def test_a_review_names_first_the_gaps_that_asked_for_a_person(self) -> None:
+        rules = [SEEDERS | {"id": "r0", "when_missing": "approve"},
+                 SIZE | {"id": "r1", "when_missing": "review"},
+                 YEAR | {"id": "r2"},
+                 GUIDE | {"id": "r3", "when_missing": "review"}]
+        decision = evaluate(movie(), {}, policy(*rules, types=self.WAITING), now=NOW)
+        self.assertEqual((decision.outcome, [r.rule for r in decision.reasons]),
+                         (REVIEW, ["r1", "r3", "r0", "r2"]))
 
     def test_a_waived_gap_still_stops_an_approve_rule_from_ending_the_walk(self) -> None:
         p = policy(

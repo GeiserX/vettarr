@@ -595,7 +595,7 @@ def evaluate(
     blocks: list[tuple[str, Reason]] = []
     gaps: list[Reason] = []
     # What each gap asks for: the rule's when_missing, else the type's.
-    held: set[str] = set()
+    held: list[str] = []
     notes: list[Reason] = []
     approved_by: Reason | None = None
     for rule in rules:
@@ -604,7 +604,7 @@ def evaluate(
             value = signals.get(short.check) if short is not None else None
             off = isinstance(value, Mapping) and "unavailable" in value
             gaps.append(Reason(UNAVAILABLE if off else MISSING, rule.id, text))
-            held.add(rule.when_missing or tp.when_data_missing)
+            held.append(rule.when_missing or tp.when_data_missing)
             continue
         if not hit:
             continue
@@ -628,7 +628,10 @@ def evaluate(
     if gaps:
         # A review now beats a wait, which ends in review at the latest.
         if "review" in held:
-            return done(REVIEW, *gaps, *notes)
+            # The gaps that asked for a person lead, so the card names them.
+            asked = [g for g, mode in zip(gaps, held) if mode == "review"]
+            rest = [g for g, mode in zip(gaps, held) if mode != "review"]
+            return done(REVIEW, *asked, *rest, *notes)
         if "wait" not in held:
             return done(APPROVE, *gaps, *notes)
         created = getattr(item, "created_at", None)
@@ -667,8 +670,8 @@ def act(decision: Decision, auto_approve: str) -> Applied:
 
     One review is the switch's doing too: under ``off`` no lookup runs, so a
     review that rests only on data nobody fetched (``when_data_missing:
-    review``) leads with the same reason, and is decided again once the
-    switch is on.
+    review``, or a rule's ``when_missing: review``) leads with the same
+    reason, and is decided again once the switch is on.
     """
     if auto_approve == "off" and decision.outcome == REVIEW:
         found = any(r.kind in _FINDING_KINDS or r.kind == TYPE for r in decision.reasons)

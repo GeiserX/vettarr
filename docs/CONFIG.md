@@ -422,7 +422,7 @@ Operators: `at_least`, `at_most`, `between` (`[low, high]`), `is` (true/false), 
 
 #### Combining conditions
 
-A rule may combine conditions instead of making one check. `all` takes a list and holds when every condition in it holds; `any` takes a list and holds when one does; `not` takes one condition and holds when it does not. A condition is a check (`check`, one operator, and `split_vote` or `min_votes` on a voted signal) or another `all`, `any` or `not`, nested as deep as needed. `id`, `name`, `types` and `on_hit` stay on the rule; `split_vote` and `min_votes` go on the voted check they belong to, never on the rule itself.
+A rule may combine conditions instead of making one check. `all` takes a list and holds when every condition in it holds; `any` takes a list and holds when one does; `not` takes one condition and holds when it does not. A condition is a check (`check`, one operator, and `split_vote` or `min_votes` on a voted signal) or another `all`, `any` or `not`, nested as deep as needed. `id`, `name`, `types`, `on_hit` and `when_missing` stay on the rule; `split_vote` and `min_votes` go on the voted check they belong to, never on the rule itself.
 
 ```yaml
 rules:
