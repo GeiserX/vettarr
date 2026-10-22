@@ -496,6 +496,35 @@ class SeerrClientTests(unittest.TestCase):
         self.assertEqual(again.headers["x-xsrf-token"], fakes.CSRF_TOKEN)
         self.assertEqual(again.headers["x-api-key"], API_KEY)
 
+    def test_csrf_cookies_marked_secure_still_go_back_over_http(self) -> None:
+        # Seen live on Seerr 3.5.1: both cookies came back Secure on a plain
+        # http answer, the jar kept _csrf to itself, and every approve was
+        # refused "403 invalid csrf token" again on the retry.
+        self.server.csrf = True
+        pending = self.server.add_request("movie", TMDB_ID, user=5)
+        run(self.client.approve(pending["id"]))
+        self.assertEqual(self.server.requests[pending["id"]]["status"], fakes.REQUEST_APPROVED)
+        again = self.server.calls[-1]
+        self.assertIn(f"{fakes.CSRF_SECRET_COOKIE}={fakes.CSRF_SECRET}", again.headers["cookie"])
+        self.assertIn(f"{fakes.CSRF_COOKIE}={fakes.CSRF_TOKEN}", again.headers["cookie"])
+
+    def test_csrf_cookies_without_secure_still_pass(self) -> None:
+        # Seerr 3.5.0 and before: the same cookies, not marked Secure.
+        self.server.csrf, self.server.csrf_secure = True, False
+        pending = self.server.add_request("movie", TMDB_ID, user=5)
+        run(self.client.approve(pending["id"]))
+        self.assertEqual(self.server.requests[pending["id"]]["status"], fakes.REQUEST_APPROVED)
+
+    def test_a_csrf_refusal_with_no_secret_cookie_is_an_error(self) -> None:
+        self.server.csrf = True
+        pending = self.server.add_request("movie", TMDB_ID, user=5)
+        with mock.patch.object(fakes, "CSRF_SECRET_COOKIE", "other"):
+            with self.assertRaises(DeliveryError) as caught:
+                run(self.client.approve(pending["id"]))
+        self.assertIn("sent no _csrf cookie", str(caught.exception))
+        self.assertNotIn(fakes.CSRF_TOKEN, str(caught.exception))
+        self.assertEqual(self.server.requests[pending["id"]]["status"], fakes.REQUEST_PENDING)
+
     def test_a_request_through_csrf_still_goes_as_the_user(self) -> None:
         self.server.csrf = True
         made = run(self.client.request("movie", TMDB_ID))

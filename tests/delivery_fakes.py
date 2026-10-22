@@ -275,6 +275,9 @@ _CLOSED = (REQUEST_DECLINED, REQUEST_COMPLETED)
 
 CSRF_COOKIE = "XSRF-TOKEN"
 CSRF_TOKEN = "fake-csrf-token"
+#: The secret the token is checked against, in its own HttpOnly cookie.
+CSRF_SECRET_COOKIE = "_csrf"
+CSRF_SECRET = "fake-csrf-secret"
 
 
 class FakeSeerr(FakeServer):
@@ -290,8 +293,13 @@ class FakeSeerr(FakeServer):
         self._next_id = 31
         #: Seerr's "CSRF Protection" (Settings, Network). On, every write
         #: without the token is 403 "invalid csrf token", API key or not; the
-        #: token is the XSRF-TOKEN cookie every answer sets.
+        #: token is the XSRF-TOKEN cookie every answer sets, checked against
+        #: the secret in the _csrf cookie set beside it.
         self.csrf = False
+        #: Seerr 3.5.1 marks both cookies Secure, even on a plain http
+        #: answer, so a cookie jar never sends them back over http. False is
+        #: 3.5.0 and before.
+        self.csrf_secure = True
 
     def _seasons_left(self, info: dict[str, Any], asked) -> list[int]:
         """The seasons of a request Seerr would still take.
@@ -375,14 +383,24 @@ class FakeSeerr(FakeServer):
 
     def _handle(self, request: httpx.Request) -> httpx.Response:
         answer = super()._handle(request)
-        if self.csrf:
-            answer.headers["set-cookie"] = f"{CSRF_COOKIE}={CSRF_TOKEN}; Path=/"
-        return answer
+        if not self.csrf:
+            return answer
+        flags = "; Secure; SameSite=Strict" if self.csrf_secure else ""
+        cookies = [
+            ("set-cookie", f"{CSRF_SECRET_COOKIE}={CSRF_SECRET}; Path=/; HttpOnly{flags}"),
+            ("set-cookie", f"{CSRF_COOKIE}={CSRF_TOKEN}; Path=/{flags}"),
+        ]
+        return httpx.Response(
+            answer.status_code, headers=[*answer.headers.multi_items(), *cookies], content=answer.content,
+        )
 
     def route(self, method, path, params, body, request) -> httpx.Response:
         if self.csrf and method != "GET":
             sent = request.headers.get("X-XSRF-TOKEN")
-            if sent != CSRF_TOKEN or f"{CSRF_COOKIE}={CSRF_TOKEN}" not in request.headers.get("cookie", ""):
+            jar = dict(
+                part.strip().split("=", 1) for part in request.headers.get("cookie", "").split(";") if "=" in part
+            )
+            if sent != CSRF_TOKEN or jar.get(CSRF_SECRET_COOKIE) != CSRF_SECRET:
                 return _json(403, {"message": "invalid csrf token"})
         if (method, path) == ("GET", "/api/v1/settings/about"):
             return _json(200, {"version": "3.5.0", "totalRequests": len(self.requests), "totalMediaItems": 0})

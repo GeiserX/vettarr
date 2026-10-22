@@ -31,9 +31,11 @@ REQUEST_APPROVED = 2
 REQUEST_DECLINED = 3
 REQUEST_FAILED = 4
 
-#: Seerr's CSRF protection: the cookie it sets, and the header it reads it back from.
+#: Seerr's CSRF protection: the cookie with the token, the header it reads
+#: the token back from, and the cookie with the secret it checks it against.
 CSRF_COOKIE = "XSRF-TOKEN"
 CSRF_HEADER = "X-XSRF-TOKEN"
+CSRF_SECRET_COOKIE = "_csrf"
 
 NO_USER = (
     "integrations.seerr.user_id is not set: a request made with the API key alone "
@@ -106,7 +108,12 @@ class SeerrClient:
         write 403 "invalid csrf token", API key or not. Its token is the
         ``XSRF-TOKEN`` cookie it sets on any answer, sent back as the
         ``X-XSRF-TOKEN`` header next to its ``_csrf`` cookie. So a write
-        refused for that takes the cookies from a read and is sent once more.
+        refused for that reads both cookies and is sent once more.
+
+        The two cookies go back in a ``Cookie`` header written here, not by
+        the cookie jar. Since 3.5.1 Seerr marks them Secure, even on a plain
+        http answer, and a jar never sends a Secure cookie over http: the
+        retry left without ``_csrf`` and was refused again.
         """
         try:
             return await self._api.request(method, path, **kwargs)
@@ -114,10 +121,17 @@ class SeerrClient:
             if exc.status != 403 or "csrf" not in str(exc).lower():
                 raise
         await self._api.request("GET", "/api/v1/settings/about")
-        token = self._api.cookie(CSRF_COOKIE)
-        if not token:
-            raise DeliveryError("Seerr refused the write for its CSRF protection and sent no token", 403)
-        headers = {**(kwargs.pop("headers", None) or {}), CSRF_HEADER: token}
+        token, secret = self._api.cookie(CSRF_COOKIE), self._api.cookie(CSRF_SECRET_COOKIE)
+        missing = [name for name, value in ((CSRF_COOKIE, token), (CSRF_SECRET_COOKIE, secret)) if not value]
+        if missing:
+            raise DeliveryError(
+                f"Seerr refused the write for its CSRF protection and sent no {' or '.join(missing)} cookie", 403,
+            )
+        headers = {
+            **(kwargs.pop("headers", None) or {}),
+            CSRF_HEADER: token,
+            "Cookie": f"{CSRF_SECRET_COOKIE}={secret}; {CSRF_COOKIE}={token}",
+        }
         return await self._api.request(method, path, headers=headers, **kwargs)
 
     async def test(self) -> str:
