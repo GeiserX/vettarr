@@ -397,7 +397,10 @@ class FakeSeerr(FakeServer):
     def route(self, method, path, params, body, request) -> httpx.Response:
         if self.csrf and method != "GET":
             sent = request.headers.get("X-XSRF-TOKEN")
-            if sent != CSRF_TOKEN or f"{CSRF_SECRET_COOKIE}={CSRF_SECRET}" not in request.headers.get("cookie", ""):
+            jar = dict(
+                part.strip().split("=", 1) for part in request.headers.get("cookie", "").split(";") if "=" in part
+            )
+            if sent != CSRF_TOKEN or jar.get(CSRF_SECRET_COOKIE) != CSRF_SECRET:
                 return _json(403, {"message": "invalid csrf token"})
         if (method, path) == ("GET", "/api/v1/settings/about"):
             return _json(200, {"version": "3.5.0", "totalRequests": len(self.requests), "totalMediaItems": 0})

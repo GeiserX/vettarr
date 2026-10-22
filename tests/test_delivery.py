@@ -521,7 +521,8 @@ class SeerrClientTests(unittest.TestCase):
         with mock.patch.object(fakes, "CSRF_SECRET_COOKIE", "other"):
             with self.assertRaises(DeliveryError) as caught:
                 run(self.client.approve(pending["id"]))
-        self.assertIn("sent no token", str(caught.exception))
+        self.assertIn("sent no _csrf cookie", str(caught.exception))
+        self.assertNotIn(fakes.CSRF_TOKEN, str(caught.exception))
         self.assertEqual(self.server.requests[pending["id"]]["status"], fakes.REQUEST_PENDING)
 
     def test_a_request_through_csrf_still_goes_as_the_user(self) -> None:

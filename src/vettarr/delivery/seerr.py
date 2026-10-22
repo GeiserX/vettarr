@@ -122,8 +122,11 @@ class SeerrClient:
                 raise
         await self._api.request("GET", "/api/v1/settings/about")
         token, secret = self._api.cookie(CSRF_COOKIE), self._api.cookie(CSRF_SECRET_COOKIE)
-        if not token or not secret:
-            raise DeliveryError("Seerr refused the write for its CSRF protection and sent no token", 403)
+        missing = [name for name, value in ((CSRF_COOKIE, token), (CSRF_SECRET_COOKIE, secret)) if not value]
+        if missing:
+            raise DeliveryError(
+                f"Seerr refused the write for its CSRF protection and sent no {' or '.join(missing)} cookie", 403,
+            )
         headers = {
             **(kwargs.pop("headers", None) or {}),
             CSRF_HEADER: token,
