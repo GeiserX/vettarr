@@ -978,7 +978,7 @@ class SameTypeDuplicateTests(unittest.TestCase):
         self.assertEqual(found, "Already in qBittorrent: Reina roja - Juan Gómez-Jurado .epub")
 
     def test_vettarr_items_of_another_type_are_not_compared(self) -> None:
-        _, session = self._check([], {"series": "Series"})
+        _, session = self._check([("Another Show", "Series")], {"series": "Series"})
         sql = str(session.statements[-1].compile(compile_kwargs={"literal_binds": True}))
         self.assertIn("media_items.media_type = 'SERIES'", sql)
 
