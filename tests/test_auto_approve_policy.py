@@ -214,7 +214,7 @@ class DuplicateTests(unittest.TestCase):
     def test_duplicate_is_never_auto_approved(self) -> None:
         result = decide(duplicate_of="DB: Example")
         self.assertEqual(result.decision, REVIEW)
-        self.assertEqual(result.reasons, ("duplicate of DB: Example",))
+        self.assertEqual(result.reasons, ("DB: Example",))
 
     def test_duplicate_magazine_is_never_auto_approved(self) -> None:
         result = decide(media_type=MediaType.MAGAZINE, duplicate_of="qBt: Example")

@@ -43,7 +43,7 @@ from vettarr.models import (
     Recommendation,
 )
 from vettarr.parser.regex_parser import classify_non_media, parse_message
-from vettarr.searcher.qbittorrent_client import QBittorrentClient
+from vettarr.searcher.qbittorrent_client import QBittorrentClient, category_for
 
 log = logging.getLogger(__name__)
 
@@ -190,13 +190,17 @@ def titles_match(a: str, b: str, media_type: MediaType | None = None) -> bool:
     return overlap >= 0.85
 
 
-_qbt_name_cache: list[str] = []
+_qbt_name_cache: list[tuple[str, str]] = []
 _qbt_cache_ts: float = 0
 _qbt_cache_lock = asyncio.Lock()
 
 
-async def _get_qbt_names() -> list[str]:
-    """Cached list of all qBittorrent torrent names (refresh every 5 min)."""
+async def _get_qbt_names(category: str | None = None) -> list[str]:
+    """Names of the torrents in qBittorrent, cached for 5 min.
+
+    With `category`, only the torrents filed under it: a series is not a
+    duplicate of the novel it was made from.
+    """
     global _qbt_name_cache, _qbt_cache_ts
     import time
     # One refresh at a time. A batch of posts checks several items at once, and
@@ -210,7 +214,13 @@ async def _get_qbt_names() -> list[str]:
                 log.info("Refreshed qBt name cache: %d torrents", len(_qbt_name_cache))
             except Exception:
                 log.warning("qBittorrent name cache refresh failed", exc_info=True)
-    return _qbt_name_cache
+    return [name for name, cat in _qbt_name_cache if category is None or cat == category]
+
+
+def _qbt_category(item: MediaItem) -> str | None:
+    """The qBittorrent category an item of this type lives in, or None when the
+    config files no category for it and every torrent is compared."""
+    return category_for(item.media_type) or None
 
 
 # Statuses that mean the title is already settled here: a human said yes, or
@@ -251,6 +261,8 @@ async def _matching_title(session, item: MediaItem, statuses, earlier_only=False
     title = _dup_title(item)
     conditions = [
         MediaItem.id != item.id,
+        # A film and the book it adapts share a title, never a download.
+        MediaItem.media_type == item.media_type,
         MediaItem.title.isnot(None),
         MediaItem.status.in_(list(statuses)),
     ]
@@ -275,13 +287,15 @@ async def _check_duplicate(session, item: MediaItem) -> str | None:
 
     db_title = await _matching_title(session, item, _SETTLED_STATUSES)
     if db_title:
-        return f"DB: {db_title}"
+        return f"Already approved in vettarr: {db_title}"
 
-    qbt_names = await _get_qbt_names()
+    category = _qbt_category(item)
+    qbt_names = await _get_qbt_names(category)
     title = _dup_title(item)
     for name in qbt_names:
         if titles_match(title, name, item.media_type):
-            return f"qBt: {name}"
+            where = f"qBittorrent ({category})" if category else "qBittorrent"
+            return f"Already in {where}: {name}"
 
     return None
 
@@ -289,7 +303,7 @@ async def _check_duplicate(session, item: MediaItem) -> str | None:
 async def _check_in_flight_twin(session, item: MediaItem) -> str | None:
     """An earlier post of the same title that nobody has decided yet, or None.
 
-    Read only by the auto-approval policy. It never becomes a "Duplicate:"
+    Read only by the auto-approval policy. It never becomes a duplicate
     message, so the review queue shows exactly what it showed before.
     """
     if not _comparable(item):
@@ -417,7 +431,7 @@ def outcome_values(
             values["error_message"] = "; ".join(flags or [])
     if duplicate_of:
         values["auto_recommendation"] = Recommendation.REJECT
-        values["error_message"] = f"Duplicate: {duplicate_of}"
+        values["error_message"] = duplicate_of
     elif reparsing and "error_message" not in values:
         values["error_message"] = None
     return values
@@ -804,7 +818,7 @@ async def _write_recheck_result(
     """
     values = decision_values(result, now)
     if duplicate_of:
-        values["error_message"] = f"Duplicate: {duplicate_of}"
+        values["error_message"] = duplicate_of
         values["auto_recommendation"] = Recommendation.REJECT
     elif values.get("status") not in (ItemStatus.APPROVED, ItemStatus.REJECTED):
         values["error_message"] = "; ".join(flags) if flags else None
