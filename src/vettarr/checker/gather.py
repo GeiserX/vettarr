@@ -424,7 +424,7 @@ def base_signals(
     integrations = cfg.integrations
     snapshot: dict[str, Any] = {}
     if duplicate_of:
-        snapshot[META_DUPLICATE] = f"duplicate of {duplicate_of}"
+        snapshot[META_DUPLICATE] = duplicate_of
     elif twin_of:
         snapshot[META_DUPLICATE] = CONCURRENT_DUPLICATE
     if not (getattr(item, "title", None) or "").strip():
@@ -713,7 +713,7 @@ async def costly_signals(
         if not getattr(item, "title", None):
             return {"in_download_client": missing("no title to compare")}
         title = pipeline._dup_title(item)
-        names = await pipeline._get_qbt_names()
+        names = await pipeline._get_qbt_names(pipeline._qbt_category(item))
         return {"in_download_client": any(pipeline.titles_match(title, n, item.media_type) for n in names)}
 
     async def disk_free_gb() -> dict[str, Any]:

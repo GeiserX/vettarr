@@ -506,7 +506,7 @@ class WholeListTests(unittest.TestCase):
             self.assertIn("limit", params)
 
     def test_only_real_names_come_back(self) -> None:
-        """Each object is reduced to its name while it is parsed. A torrent
+        """Each object is reduced to its name and category while it is parsed. A torrent
         with no name is left out instead of failing the whole refresh."""
         client = QBittorrentClient.__new__(QBittorrentClient)
         client._login = AsyncMock()
@@ -523,7 +523,9 @@ class WholeListTests(unittest.TestCase):
             )
         )
 
-        self.assertEqual(asyncio.run(client.list_all_names()), ["First", "Segundo Ñ"])
+        self.assertEqual(
+            asyncio.run(client.list_all_names()), [("First", "books"), ("Segundo Ñ", "Series")]
+        )
 
 
 class OwnershipTests(unittest.TestCase):

@@ -65,6 +65,33 @@ class BotCase(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# The reason a card is held
+# ---------------------------------------------------------------------------
+
+
+class DuplicateReasonTests(BotCase):
+    REASON = "Already in qBittorrent (Series): Some Series S01 1080p"
+
+    def flagged(self, reasons, error_message) -> MediaItem:
+        return make_item(
+            self.store, 7, title="Some Series", media_type=MediaType.SERIES,
+            auto_recommendation=Recommendation.REJECT, auto_decision=AutoDecision.NEEDS_REVIEW,
+            auto_reasons=reasons, error_message=error_message, external_links=[],
+        )
+
+    def test_a_duplicate_s_reason_is_said_once(self) -> None:
+        item = self.flagged([self.REASON], self.REASON)
+        text, _ = self.card(item)
+        self.assertEqual(text.count(self.REASON), 1)
+        self.assertNotIn("Flagged", text)
+
+    def test_a_flag_the_decision_line_does_not_carry_still_shows(self) -> None:
+        item = self.flagged(["imdb.violence: severe"], "title rule: example")
+        text, _ = self.card(item)
+        self.assertIn("<b>Flagged:</b> title rule: example", text)
+
+
+# ---------------------------------------------------------------------------
 # The deep link
 # ---------------------------------------------------------------------------
 

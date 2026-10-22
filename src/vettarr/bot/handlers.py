@@ -207,7 +207,8 @@ async def _send_review(chat_id: int, item: MediaItem) -> None:
     if auto_line:
         parts.append(auto_line)
 
-    if is_flagged and item.error_message:
+    # A duplicate's reason is already the decision line above; say it once.
+    if is_flagged and item.error_message and item.error_message not in (item.auto_reasons or []):
         parts.append(f"\n\u26a0\ufe0f <b>Flagged:</b> {_h(item.error_message)}")
 
     # Where approving sends it, when that is not the download client.

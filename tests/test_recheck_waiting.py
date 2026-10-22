@@ -315,7 +315,7 @@ class DuplicateTests(unittest.TestCase):
         self.assertEqual(count, 1)
         values = set_of(session.updates()[-1])
         self.assertEqual(values.get("status"), ItemStatus.PENDING_REVIEW)
-        self.assertEqual(values.get("error_message"), "Duplicate: DB: Alguna Pelicula")
+        self.assertEqual(values.get("error_message"), "DB: Alguna Pelicula")
         self.assertEqual(values.get("auto_recommendation"), Recommendation.REJECT)
 
 

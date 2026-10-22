@@ -655,15 +655,18 @@ class QBittorrentClient:
             return data[0].get("progress", 0.0)
         return None
 
-    async def list_all_names(self) -> list[str]:
-        """Return the name of every torrent in qBittorrent."""
+    async def list_all_names(self) -> list[tuple[str, str]]:
+        """(name, category) of every torrent in qBittorrent; no category is ""."""
         await self._login()
         resp = await self._request("GET", "/api/v2/torrents/info")
         resp.raise_for_status()
-        # Keep each name as its object is parsed and drop the rest: the full
-        # objects of ten thousand torrents are 30 MB that nobody reads.
-        names = json.loads(resp.content, object_hook=lambda torrent: torrent.get("name"))
-        return [name for name in names if isinstance(name, str)]
+        # Keep each name and category as its object is parsed and drop the
+        # rest: the full objects of ten thousand torrents are 30 MB that nobody reads.
+        rows = json.loads(
+            resp.content,
+            object_hook=lambda torrent: (torrent.get("name"), torrent.get("category") or ""),
+        )
+        return [(name, category) for name, category in rows if isinstance(name, str)]
 
     async def _all_content_paths(self) -> list[tuple[str, str, str | None]]:
         """(hash, content_path, save_path) of every torrent, read once per cache window."""

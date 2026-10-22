@@ -388,7 +388,7 @@ class ProcessItemTests(unittest.TestCase):
         run_process(item, duplicate="DB: Trail and Tide - Octubre 2022")
         self.assertEqual(item.status, ItemStatus.PENDING_REVIEW)
         self.assertEqual(item.auto_recommendation, Recommendation.REJECT)
-        self.assertIn("Duplicate", item.error_message)
+        self.assertEqual(item.error_message, "DB: Trail and Tide - Octubre 2022")
 
     def test_the_switch_being_off_approves_nothing(self) -> None:
         item = make_item(MAGAZINE_POST)
@@ -725,7 +725,7 @@ class ConcurrentTwinTests(unittest.TestCase):
         run_process(
             item, content=(matched_tmdb(), full_guide()), duplicate="DB: Some Film",
         )
-        self.assertEqual(item.error_message, "Duplicate: DB: Some Film")
+        self.assertEqual(item.error_message, "DB: Some Film")
         self.assertEqual(item.auto_recommendation, Recommendation.REJECT)
 
 
@@ -790,7 +790,7 @@ class TwinLookupTests(unittest.TestCase):
             pipeline, "_get_qbt_names", mock.AsyncMock(return_value=[])
         ):
             found = asyncio.run(pipeline._check_duplicate(session, item))
-        self.assertEqual(found, "DB: Some Film")
+        self.assertEqual(found, "Already approved in vettarr: Some Film")
         sql = str(
             session.statements[-1].compile(compile_kwargs={"literal_binds": True})
         )
@@ -934,6 +934,55 @@ class ConditionalWriteAgainstPostgresTests(unittest.TestCase):
             conn.close()
 
 
+class SameTypeDuplicateTests(unittest.TestCase):
+    """A Seerr request for the series "Reina roja" was held as a duplicate of
+    the novel's epub in the books category. A title only clashes with its own
+    kind: a series with series, a film with films."""
+
+    class _NoRows:
+        def __init__(self):
+            self.statements = []
+
+        async def execute(self, statement):
+            self.statements.append(statement)
+            return FakeRows([])
+
+    TORRENTS = [
+        ("Reina roja - Juan Gómez-Jurado .epub", "Libros"),
+        ("Reina Roja - Origen - Juan Gómez Jurado.mp3", "AudioLibros"),
+    ]
+
+    def _check(self, torrents, categories):
+        from vettarr.config import runtime
+        cfg = runtime.from_environment(dict(os.environ))
+        cfg.integrations.qbittorrent.categories = categories
+        item = make_item(MOVIE_POST, title="Reina roja", year=2024, media_type=MediaType.SERIES)
+        session = self._NoRows()
+        with mock.patch.object(runtime, "_config", cfg), \
+                mock.patch.object(pipeline, "_qbt_name_cache", torrents), \
+                mock.patch.object(pipeline, "_qbt_cache_ts", float("inf")), \
+                mock.patch.object(pipeline, "_qbt_cache_lock", asyncio.Lock()):
+            return asyncio.run(pipeline._check_duplicate(session, item)), session
+
+    def test_the_novel_in_the_books_category_is_not_a_duplicate_of_the_series(self) -> None:
+        found, _ = self._check(self.TORRENTS, {"series": "Series", "ebook": "Libros"})
+        self.assertIsNone(found)
+
+    def test_the_series_in_its_own_category_is_a_duplicate_and_says_where(self) -> None:
+        torrents = [*self.TORRENTS, ("Reina Roja S01 1080p", "Series")]
+        found, _ = self._check(torrents, {"series": "Series", "ebook": "Libros"})
+        self.assertEqual(found, "Already in qBittorrent (Series): Reina Roja S01 1080p")
+
+    def test_with_no_category_for_the_type_every_torrent_is_compared(self) -> None:
+        found, _ = self._check(self.TORRENTS, {})
+        self.assertEqual(found, "Already in qBittorrent: Reina roja - Juan Gómez-Jurado .epub")
+
+    def test_vettarr_items_of_another_type_are_not_compared(self) -> None:
+        _, session = self._check([("Another Show", "Series")], {"series": "Series"})
+        sql = str(session.statements[-1].compile(compile_kwargs={"literal_binds": True}))
+        self.assertIn("media_items.media_type = 'SERIES'", sql)
+
+
 class QbtNameCacheTests(unittest.TestCase):
     """A batch of posts checks several items at once. Each used to fetch the
     whole qBittorrent list when the cache had aged, three 18 MB answers within
@@ -942,11 +991,11 @@ class QbtNameCacheTests(unittest.TestCase):
     def test_concurrent_checks_share_one_refresh(self) -> None:
         calls = 0
 
-        async def _list_all_names() -> list[str]:
+        async def _list_all_names() -> list[tuple[str, str]]:
             nonlocal calls
             calls += 1
             await asyncio.sleep(0)  # let the other callers reach the cache
-            return ["Some Torrent"]
+            return [("Some Torrent", "Peliculas")]
 
         async def _three_at_once() -> list[list[str]]:
             return await asyncio.gather(*(pipeline._get_qbt_names() for _ in range(3)))
