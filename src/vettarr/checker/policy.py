@@ -32,7 +32,9 @@ How a decision is reached, in order:
    is held by its ``when_missing``, by default the type's
    ``when_data_missing``: any such rule saying ``review`` reviews; otherwise
    any saying ``wait`` waits, until ``max_wait_hours`` have passed since the
-   item arrived, and then reviews; a rule saying ``approve`` holds nothing,
+   item arrived, and then reviews; a voted signal that is in with too few
+   votes reviews at once instead of waiting, unless its rule's own
+   ``when_missing`` says ``wait``; a rule saying ``approve`` holds nothing,
    and its missing data is recorded as a reason.
 8. Otherwise nothing holds the item, and it is approved.
 
@@ -467,6 +469,16 @@ def _condition(
     return None, *first_missing
 
 
+def _thin_votes(leaf: Condition | None, value: Any, min_votes_default: int) -> bool:
+    """True when a voted signal is in but has fewer votes than its rule needs."""
+    if leaf is None or leaf.is_group or not SIGNALS[leaf.check].voted or not isinstance(value, Mapping):
+        return False
+    if "missing" in value or "unavailable" in value:
+        return False
+    min_votes = leaf.min_votes if leaf.min_votes is not None else min_votes_default
+    return (value.get("votes") or 0) < min_votes
+
+
 def _group_word(cond: Condition) -> str:
     return "all" if cond.all_ is not None else "any" if cond.any_ is not None else "not"
 
@@ -603,8 +615,14 @@ def evaluate(
         if hit is None:
             value = signals.get(short.check) if short is not None else None
             off = isinstance(value, Mapping) and "unavailable" in value
+            mode = rule.when_missing or tp.when_data_missing
+            if mode == "wait" and rule.when_missing is None and _thin_votes(short, value, min_votes_default):
+                # Votes trickle in over weeks, not hours: a wait would only
+                # end in review a day later, so a person decides now.
+                mode = "review"
+                text = f"{text}, too few to decide on, so a person does"
             gaps.append(Reason(UNAVAILABLE if off else MISSING, rule.id, text))
-            held.append(rule.when_missing or tp.when_data_missing)
+            held.append(mode)
             continue
         if not hit:
             continue

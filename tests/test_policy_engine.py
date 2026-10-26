@@ -228,15 +228,15 @@ class SeverityOperatorTests(unittest.TestCase):
         guide = {"imdb.violence": {"severity": "severe", "votes": 8, "breakdown": {}}}
         strict = policy({"id": "v", "check": "imdb.violence", "at_least": "severe", "min_votes": 5},
                         min_votes=50)
-        self.assertEqual(evaluate(movie(), guide, strict).outcome, REVIEW)
+        self.assertEqual(evaluate(movie(), guide, strict).reasons[0].text, "imdb.violence: severe")
         loose = policy({"id": "v", "check": "imdb.violence", "at_least": "severe"}, min_votes=50)
-        self.assertEqual(evaluate(movie(), guide, loose).outcome, WAIT)
+        self.assertIn("only 8 votes, need 50", evaluate(movie(), guide, loose).reasons[0].text)
 
     def test_the_imdb_guide_default_applies_last(self) -> None:
         guide = {"imdb.violence": {"severity": "severe", "votes": 8, "breakdown": {}}}
         bare = policy({"id": "v", "check": "imdb.violence", "at_least": "severe"})
-        self.assertEqual(evaluate(movie(), guide, bare, default_min_votes=20).outcome, WAIT)
-        self.assertEqual(evaluate(movie(), guide, bare, default_min_votes=5).outcome, REVIEW)
+        self.assertIn("only 8 votes, need 20", evaluate(movie(), guide, bare, default_min_votes=20).reasons[0].text)
+        self.assertEqual(evaluate(movie(), guide, bare, default_min_votes=5).reasons[0].text, "imdb.violence: severe")
 
 
 # --- the decision ----------------------------------------------------------
