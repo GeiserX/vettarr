@@ -20,7 +20,7 @@ import logging
 import re
 import time
 from collections.abc import Awaitable, Callable, Iterable, Mapping
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 import httpx
@@ -77,7 +77,7 @@ def _media_type(item: Any) -> str:
 # --- title metadata (TMDB) and the parents guide ----------------------------
 
 
-def title_signals(tmdb: TMDBResult | None, *, tmdb_on: bool = True) -> dict[str, Any]:
+def title_signals(tmdb: TMDBResult | None, *, tmdb_on: bool = True, today: date | None = None) -> dict[str, Any]:
     if not tmdb_on:
         return {name: unavailable("tmdb") for name in TITLE_SIGNALS}
     if tmdb is None or not tmdb.tmdb_id:
@@ -94,6 +94,11 @@ def title_signals(tmdb: TMDBResult | None, *, tmdb_on: bool = True) -> dict[str,
         "vote_count": tmdb.vote_count if tmdb.vote_count is not None else missing("no votes"),
         "adult": tmdb.adult if tmdb.adult is not None else missing("not stated"),
         "collection": tmdb.collection if tmdb.collection is not None else missing("not stated"),
+        # Out somewhere on or before today, so viewers have had it to rate.
+        "released": (
+            tmdb.released_on <= (today or datetime.now(timezone.utc).date()).isoformat()
+            if tmdb.released_on else missing("TMDB lists no release date")
+        ),
         "cast": list(tmdb.cast),
         "crew": list(tmdb.crew),
         "studio": list(tmdb.studios),
@@ -431,7 +436,7 @@ def base_signals(
         snapshot[META_NO_TITLE] = True
 
     if media_type in ("movie", "series"):
-        snapshot.update(title_signals(tmdb, tmdb_on=integrations.enabled("tmdb")))
+        snapshot.update(title_signals(tmdb, tmdb_on=integrations.enabled("tmdb"), today=now.date()))
         snapshot.update(guide_signals(guide, tmdb, enabled=integrations.enabled("imdb_guide")))
         ident = identity(tmdb, item)
         if ident is not None:

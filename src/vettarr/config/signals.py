@@ -62,6 +62,7 @@ def _catalogue() -> dict[str, Signal]:
         Signal("vote_count", "title", "number", ("at_least", "at_most"), VIDEO),
         Signal("adult", "title", "bool", ("is",), VIDEO),
         Signal("collection", "title", "bool", ("is",), VIDEO),
+        Signal("released", "title", "bool", ("is",), VIDEO),
         Signal("cast", "title", "terms", _LIST, VIDEO),
         Signal("crew", "title", "terms", _LIST, VIDEO),
         Signal("studio", "title", "terms", _LIST, VIDEO),

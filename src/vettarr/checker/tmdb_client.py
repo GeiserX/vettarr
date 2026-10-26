@@ -70,6 +70,10 @@ class TMDBResult:
     adult: bool | None = None
     #: Part of a collection (a saga or a sequel). Films only.
     collection: bool | None = None
+    #: The first day anyone could watch it, ``YYYY-MM-DD``: the earliest
+    #: theatrical, digital, physical or TV release in any country (films; a
+    #: festival premiere does not count), or the first air date (series).
+    released_on: str | None = None
     cast: list[str] = field(default_factory=list)
     crew: list[str] = field(default_factory=list)
     studios: list[str] = field(default_factory=list)
@@ -100,6 +104,19 @@ def _exact_title_hits(results: list, title: str, fields: tuple[str, str]) -> int
         if any(normalise(record.get(field)) == wanted for field in fields):
             hits += 1
     return hits
+
+
+#: TMDB release types a viewer could watch: limited theatrical, theatrical,
+#: digital, physical, TV. Type 1, a premiere, is a festival screening.
+_VIEWABLE_RELEASE_TYPES = frozenset({2, 3, 4, 5, 6})
+_DAY = re.compile(r"^\d{4}-\d{2}-\d{2}")
+
+
+def _day_of(date_text: object) -> str | None:
+    """``2007-05-04`` from TMDB's ``2007-05-04T00:00:00.000Z`` or ``2007-05-04``."""
+    if isinstance(date_text, str) and _DAY.match(date_text):
+        return date_text[:10]
+    return None
 
 
 def _year_of(date_text: object) -> int | None:
@@ -249,12 +266,16 @@ class TMDBClient:
         keywords = [k["name"] for k in data.get("keywords", {}).get("keywords", [])]
 
         certs: dict[str, str] = {}
+        released: list[str] = []
         for rd in data.get("release_dates", {}).get("results", []):
             country = rd.get("iso_3166_1", "")
             for rel in rd.get("release_dates", []):
                 cert = rel.get("certification", "")
                 if cert:
                     certs[country] = cert
+                day = _day_of(rel.get("release_date"))
+                if day and rel.get("type") in _VIEWABLE_RELEASE_TYPES:
+                    released.append(day)
 
         result = TMDBResult(
             tmdb_id=tmdb_id,
@@ -275,6 +296,7 @@ class TMDBClient:
             runtime=_int(data.get("runtime")),
             adult=data.get("adult") if isinstance(data.get("adult"), bool) else None,
             collection=data.get("belongs_to_collection") is not None,
+            released_on=min(released) if released else None,
             **_common(data),
         )
         return result
@@ -329,6 +351,7 @@ class TMDBClient:
             adult=data.get("adult") if isinstance(data.get("adult"), bool) else None,
             # A series is never part of a TMDB collection.
             collection=False,
+            released_on=_day_of(data.get("first_air_date")),
             status=data.get("status") if isinstance(data.get("status"), str) else None,
             number_of_episodes=_int(data.get("number_of_episodes")),
             season_episodes={
