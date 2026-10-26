@@ -1021,6 +1021,23 @@ class VotesAfterReleaseTests(unittest.TestCase):
         d = evaluate(movie(), signals, policy(*rules, types=self.WAITS, min_votes=5), now=NOW + timedelta(hours=1))
         self.assertEqual(d.outcome, WAIT)
 
+    def test_a_guide_that_could_not_be_fetched_keeps_the_arrival_clock(self) -> None:
+        d = self.decide({"missing": "parents guide not fetched"}, "2007-05-04", NOW + timedelta(hours=1))
+        self.assertEqual(d.outcome, WAIT)
+
+    def test_a_combined_rule_that_also_waits_on_a_keyword_keeps_the_arrival_clock(self) -> None:
+        both = {"id": "b", "all": [{"check": "imdb.violence", "at_least": "severe"},
+                                   {"check": "keyword", "any_of": ["x"]}]}
+        signals = {"imdb.violence": self.THIN, "keyword": {"missing": "none"}, "_released_on": "2007-05-04"}
+        d = evaluate(movie(), signals, policy(both, types=self.WAITS, min_votes=5), now=NOW + timedelta(hours=1))
+        self.assertEqual(d.outcome, WAIT)
+
+    def test_a_gap_that_approves_does_not_stop_the_release_clock(self) -> None:
+        rules = (self.RULE, {"id": "k", "check": "keyword", "any_of": ["x"], "when_missing": "approve"})
+        signals = {"imdb.violence": self.THIN, "keyword": {"missing": "none"}, "_released_on": "2007-05-04"}
+        d = evaluate(movie(), signals, policy(*rules, types=self.WAITS, min_votes=5), now=NOW)
+        self.assertEqual(d.outcome, REVIEW)
+
     def test_the_snapshot_carries_the_release_day(self) -> None:
         cfg = policy_fixture.config()
         t = TMDBResult(tmdb_id=1, imdb_id="tt1", title="T", released_on="2026-10-01")

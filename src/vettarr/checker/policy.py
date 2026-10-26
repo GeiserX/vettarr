@@ -484,6 +484,21 @@ def _votes_from(released_on: Any) -> datetime | None:
     return day + timedelta(days=1)
 
 
+def _waits_on_votes(rule: Rule, leaf: Condition | None, raw: Mapping[str, Any], masked: bool) -> bool:
+    """True when this rule waits only for IMDb votes: its guide is in, short of
+    votes or a severity, or held back until the first full day out.
+
+    A guide that could not be fetched is not a vote shortfall, and a combined
+    rule may also wait on a check that is not a vote, so neither counts.
+    """
+    if rule.is_group or leaf is None or leaf.is_group or not SIGNALS[leaf.check].voted:
+        return False
+    value = raw.get(leaf.check)
+    if not isinstance(value, Mapping) or "missing" in value or "unavailable" in value:
+        return False
+    return masked or "votes" in value
+
+
 def _without_votes(signals: Mapping[str, Any], why: str) -> dict[str, Any]:
     """The snapshot with every voted signal that is in turned into missing data."""
     out = dict(signals)
@@ -623,7 +638,9 @@ def evaluate(
 
     min_votes_default = policy.min_votes if policy.min_votes is not None else default_min_votes
     votes_from = _votes_from(signals.get(META_RELEASED_ON))
-    if votes_from is not None and now is not None and _as_utc(now) < votes_from:
+    raw_signals = signals
+    masked = votes_from is not None and now is not None and _as_utc(now) < votes_from
+    if masked:
         # Votes cast before anyone could watch it say nothing about the title.
         signals = _without_votes(signals, f"votes count from {votes_from.date().isoformat()}, its first full day out")
     # True while every gap is a voted signal: then the wait runs from the day
@@ -640,9 +657,11 @@ def evaluate(
         if hit is None:
             value = signals.get(short.check) if short is not None else None
             off = isinstance(value, Mapping) and "unavailable" in value
+            mode = rule.when_missing or tp.when_data_missing
             gaps.append(Reason(UNAVAILABLE if off else MISSING, rule.id, text))
-            held.append(rule.when_missing or tp.when_data_missing)
-            voted_only = voted_only and short is not None and not short.is_group and SIGNALS[short.check].voted
+            held.append(mode)
+            if mode == "wait" and not _waits_on_votes(rule, short, raw_signals, masked):
+                voted_only = False
             continue
         if not hit:
             continue
