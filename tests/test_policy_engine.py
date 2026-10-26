@@ -228,15 +228,15 @@ class SeverityOperatorTests(unittest.TestCase):
         guide = {"imdb.violence": {"severity": "severe", "votes": 8, "breakdown": {}}}
         strict = policy({"id": "v", "check": "imdb.violence", "at_least": "severe", "min_votes": 5},
                         min_votes=50)
-        self.assertEqual(evaluate(movie(), guide, strict).reasons[0].text, "imdb.violence: severe")
+        self.assertEqual(evaluate(movie(), guide, strict).outcome, REVIEW)
         loose = policy({"id": "v", "check": "imdb.violence", "at_least": "severe"}, min_votes=50)
-        self.assertIn("only 8 votes, need 50", evaluate(movie(), guide, loose).reasons[0].text)
+        self.assertEqual(evaluate(movie(), guide, loose).outcome, WAIT)
 
     def test_the_imdb_guide_default_applies_last(self) -> None:
         guide = {"imdb.violence": {"severity": "severe", "votes": 8, "breakdown": {}}}
         bare = policy({"id": "v", "check": "imdb.violence", "at_least": "severe"})
-        self.assertIn("only 8 votes, need 20", evaluate(movie(), guide, bare, default_min_votes=20).reasons[0].text)
-        self.assertEqual(evaluate(movie(), guide, bare, default_min_votes=5).reasons[0].text, "imdb.violence: severe")
+        self.assertEqual(evaluate(movie(), guide, bare, default_min_votes=20).outcome, WAIT)
+        self.assertEqual(evaluate(movie(), guide, bare, default_min_votes=5).outcome, REVIEW)
 
 
 # --- the decision ----------------------------------------------------------
@@ -974,6 +974,59 @@ class SeriesSignalTests(unittest.TestCase):
     def test_tmdb_off_is_unavailable(self) -> None:
         out = gather.series_signals(None, movie(media_type="series"), tmdb_on=False)
         self.assertEqual(out["status"], {"unavailable": "tmdb"})
+
+
+class VotesAfterReleaseTests(unittest.TestCase):
+    """IMDb votes count only from the day after the title came out."""
+
+    RULE = {"id": "v", "check": "imdb.violence", "at_least": "severe"}
+    MILD = {"severity": "mild", "votes": 40, "breakdown": {}}
+    THIN = {"severity": "mild", "votes": 4, "breakdown": {}}
+    WAITS = {"movie": {"mode": "rules", "when_data_missing": "wait", "max_wait_hours": 24}}
+
+    def decide(self, guide, released_on, now):
+        signals = {"imdb.violence": guide, "_released_on": released_on}
+        return evaluate(movie(), signals, policy(self.RULE, types=self.WAITS, min_votes=5), now=now)
+
+    def test_votes_before_the_first_full_day_out_do_not_count(self) -> None:
+        d = self.decide(self.MILD, "2026-10-11", NOW)
+        self.assertEqual(d.outcome, WAIT)
+        self.assertIn("votes count from 2026-10-12", d.reasons[0].text)
+
+    def test_an_unreleased_film_waits_whatever_its_votes(self) -> None:
+        self.assertEqual(self.decide(self.MILD, "2026-12-01", NOW).outcome, WAIT)
+        # Weeks after the item arrived it still waits: the clock has not started.
+        self.assertEqual(self.decide(self.MILD, "2026-12-01", NOW + timedelta(days=30)).outcome, WAIT)
+
+    def test_from_the_day_after_release_the_votes_decide(self) -> None:
+        self.assertEqual(self.decide(self.MILD, "2026-10-10", NOW).outcome, APPROVE)
+
+    def test_a_new_film_waits_for_votes_then_goes_to_a_person(self) -> None:
+        self.assertEqual(self.decide(self.THIN, "2026-10-10", NOW).outcome, WAIT)
+        late = self.decide(self.THIN, "2026-10-10", datetime(2026, 10, 12, 0, 0, tzinfo=timezone.utc))
+        self.assertEqual(late.outcome, REVIEW)
+        self.assertIn("too few votes 24 hours", late.reasons[0].text)
+
+    def test_an_old_film_with_too_few_votes_goes_to_a_person_at_once(self) -> None:
+        d = self.decide(self.THIN, "2007-05-04", NOW)
+        self.assertEqual(d.outcome, REVIEW)
+
+    def test_without_a_release_date_the_wait_runs_from_arrival(self) -> None:
+        self.assertEqual(self.decide(self.THIN, None, NOW + timedelta(hours=1)).outcome, WAIT)
+        self.assertEqual(self.decide(self.THIN, None, NOW + timedelta(hours=25)).outcome, REVIEW)
+
+    def test_a_gap_that_is_not_a_vote_keeps_the_arrival_clock(self) -> None:
+        rules = (self.RULE, {"id": "k", "check": "keyword", "any_of": ["x"]})
+        signals = {"imdb.violence": self.THIN, "keyword": {"missing": "none"}, "_released_on": "2007-05-04"}
+        d = evaluate(movie(), signals, policy(*rules, types=self.WAITS, min_votes=5), now=NOW + timedelta(hours=1))
+        self.assertEqual(d.outcome, WAIT)
+
+    def test_the_snapshot_carries_the_release_day(self) -> None:
+        cfg = policy_fixture.config()
+        t = TMDBResult(tmdb_id=1, imdb_id="tt1", title="T", released_on="2026-10-01")
+        out = gather.base_signals(movie(), cfg, tmdb=t, guide=None, book=None, book_looked_up=False,
+                                  duplicate_of=None, twin_of=None, now=NOW)
+        self.assertEqual(out["_released_on"], "2026-10-01")
 
 
 class TitleAndGuideSignalTests(unittest.TestCase):

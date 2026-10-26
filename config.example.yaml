@@ -311,12 +311,6 @@ policy:
   lists: {}
   #   unwanted: [some keyword, another keyword]
   rules:
-    - id: not-released
-      name: Not out anywhere yet           # no viewers yet to rate it
-      check: released
-      is: false
-      on_hit: review
-      when_missing: review            # TMDB lists no release date: a person decides
     - id: violence
       name: Violence is severe
       check: imdb.violence
