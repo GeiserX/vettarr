@@ -33,6 +33,7 @@ from vettarr.checker.policy import (
     META_DUPLICATE,
     META_IDENTITY,
     META_NO_TITLE,
+    META_RELEASED_ON,
     applicable_rules,
     check_rule,
     missing,
@@ -441,6 +442,8 @@ def base_signals(
         ident = identity(tmdb, item)
         if ident is not None:
             snapshot[META_IDENTITY] = ident
+        if tmdb is not None and tmdb.tmdb_id and tmdb.released_on:
+            snapshot[META_RELEASED_ON] = tmdb.released_on
         if media_type == "series":
             snapshot.update(
                 series_signals(tmdb, item, tmdb_on=integrations.enabled("tmdb"), words=cfg.release_words)

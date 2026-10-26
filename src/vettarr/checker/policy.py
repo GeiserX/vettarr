@@ -32,9 +32,10 @@ How a decision is reached, in order:
    is held by its ``when_missing``, by default the type's
    ``when_data_missing``: any such rule saying ``review`` reviews; otherwise
    any saying ``wait`` waits, until ``max_wait_hours`` have passed since the
-   item arrived, and then reviews; a voted signal that is in with too few
-   votes reviews at once instead of waiting, unless its rule's own
-   ``when_missing`` says ``wait``; a rule saying ``approve`` holds nothing,
+   item arrived, and then reviews. IMDb votes count only from the day after
+   the title came out (``_released_on``): before then every voted signal is
+   missing, and a wait on voted signals alone runs its ``max_wait_hours``
+   from that day, not from the item's arrival; a rule saying ``approve`` holds nothing,
    and its missing data is recorded as a reason.
 8. Otherwise nothing holds the item, and it is approved.
 
@@ -53,9 +54,10 @@ A signal snapshot is a JSON-ready mapping, signal name to value:
 - ``{"missing": "why"}`` or no key at all: the data is not in
 - ``{"unavailable": "<integration>"}``: the integration that feeds it is off
 
-plus three keys starting with ``_`` that are not signals: ``_duplicate``
+plus four keys starting with ``_`` that are not signals: ``_duplicate``
 (what this item duplicates), ``_identity`` (``{"ok": bool, "text": str}``,
-whether the TMDB match is the title) and ``_no_title``.
+whether the TMDB match is the title), ``_no_title`` and ``_released_on``
+(the first day anyone could watch it).
 """
 
 from __future__ import annotations
@@ -104,6 +106,8 @@ SETTINGS_KINDS = frozenset({SETTING, SHADOW, TYPE})
 META_DUPLICATE = "_duplicate"
 META_IDENTITY = "_identity"
 META_NO_TITLE = "_no_title"
+#: The first day anyone could watch the title, ``YYYY-MM-DD`` (TMDB).
+META_RELEASED_ON = "_released_on"
 
 AUTO_APPROVE_OFF = "auto-approval is switched off"
 # How the reason of a decision made under a scope starts; the scope's id follows.
@@ -469,14 +473,43 @@ def _condition(
     return None, *first_missing
 
 
-def _thin_votes(leaf: Condition | None, value: Any, min_votes_default: int) -> bool:
-    """True when a voted signal is in but has fewer votes than its rule needs."""
-    if leaf is None or leaf.is_group or not SIGNALS[leaf.check].voted or not isinstance(value, Mapping):
+def _votes_from(released_on: Any) -> datetime | None:
+    """Midnight UTC of the day after ``YYYY-MM-DD``: when IMDb votes start to count."""
+    if not isinstance(released_on, str):
+        return None
+    try:
+        day = datetime.strptime(released_on[:10], "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+    return day + timedelta(days=1)
+
+
+def _waits_on_votes(rule: Rule, leaf: Condition | None, raw: Mapping[str, Any], masked: bool) -> bool:
+    """True when this rule waits only for IMDb votes: its guide is in, short of
+    votes or a severity, or held back until the first full day out.
+
+    A guide that could not be fetched is not a vote shortfall, and a combined
+    rule may also wait on a check that is not a vote, so neither counts.
+    """
+    if rule.is_group or leaf is None or leaf.is_group or not SIGNALS[leaf.check].voted:
         return False
-    if "missing" in value or "unavailable" in value:
+    value = raw.get(leaf.check)
+    if not isinstance(value, Mapping) or "missing" in value or "unavailable" in value:
         return False
-    min_votes = leaf.min_votes if leaf.min_votes is not None else min_votes_default
-    return (value.get("votes") or 0) < min_votes
+    return masked or "votes" in value
+
+
+def _without_votes(signals: Mapping[str, Any], why: str) -> dict[str, Any]:
+    """The snapshot with every voted signal that is in turned into missing data."""
+    out = dict(signals)
+    for name, value in signals.items():
+        spec = SIGNALS.get(name)
+        if spec is None or not spec.voted:
+            continue
+        if isinstance(value, Mapping) and ("missing" in value or "unavailable" in value):
+            continue
+        out[name] = {"missing": why}
+    return out
 
 
 def _group_word(cond: Condition) -> str:
@@ -604,6 +637,15 @@ def evaluate(
         )
 
     min_votes_default = policy.min_votes if policy.min_votes is not None else default_min_votes
+    votes_from = _votes_from(signals.get(META_RELEASED_ON))
+    raw_signals = signals
+    masked = votes_from is not None and now is not None and _as_utc(now) < votes_from
+    if masked:
+        # Votes cast before anyone could watch it say nothing about the title.
+        signals = _without_votes(signals, f"votes count from {votes_from.date().isoformat()}, its first full day out")
+    # True while every gap is a voted signal: then the wait runs from the day
+    # votes start to count, not from the item's arrival.
+    voted_only = True
     blocks: list[tuple[str, Reason]] = []
     gaps: list[Reason] = []
     # What each gap asks for: the rule's when_missing, else the type's.
@@ -616,13 +658,10 @@ def evaluate(
             value = signals.get(short.check) if short is not None else None
             off = isinstance(value, Mapping) and "unavailable" in value
             mode = rule.when_missing or tp.when_data_missing
-            if mode == "wait" and rule.when_missing is None and _thin_votes(short, value, min_votes_default):
-                # Votes trickle in over weeks, not hours: a wait would only
-                # end in review a day later, so a person decides now.
-                mode = "review"
-                text = f"{text}, too few to decide on, so a person does"
             gaps.append(Reason(UNAVAILABLE if off else MISSING, rule.id, text))
             held.append(mode)
+            if mode == "wait" and not _waits_on_votes(rule, short, raw_signals, masked):
+                voted_only = False
             continue
         if not hit:
             continue
@@ -653,7 +692,14 @@ def evaluate(
         if "wait" not in held:
             return done(APPROVE, *gaps, *notes)
         created = getattr(item, "created_at", None)
-        if isinstance(created, datetime) and now is not None:
+        if voted_only and votes_from is not None and now is not None:
+            if _as_utc(now) - votes_from >= timedelta(hours=tp.max_wait_hours):
+                return done(
+                    REVIEW,
+                    Reason(EXPIRED, None, f"too few votes {tp.max_wait_hours} hours into its first full day out"),
+                    *gaps, *notes,
+                )
+        elif isinstance(created, datetime) and now is not None:
             if _as_utc(now) - _as_utc(created) >= timedelta(hours=tp.max_wait_hours):
                 return done(
                     REVIEW,

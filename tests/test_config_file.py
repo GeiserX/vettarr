@@ -39,7 +39,7 @@ class ExampleTests(unittest.TestCase):
         self.assertEqual([f.key for f in cfg.formats], ["card", "scene"])
         self.assertEqual(
             [r.id for r in cfg.policy.rules],
-            ["not-released", "violence", "nudity", "frightening", "adult-certification"],
+            ["violence", "nudity", "frightening", "adult-certification"],
         )
         self.assertFalse(cfg.integrations.enabled("prowlarr"))
         self.assertFalse(cfg.integrations.enabled("qbittorrent"))
