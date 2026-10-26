@@ -331,7 +331,7 @@ class MissingDataTests(unittest.TestCase):
     def test_empty_guide_never_approves(self) -> None:
         """A guide with every rating None is what every stored check used to look like."""
         result = decide(parents_guide=ParentsGuide(fetched=True))
-        self.assertEqual(result.decision, WAIT)
+        self.assertEqual(result.decision, REVIEW)
 
     def test_missing_severity_with_enough_votes_waits(self) -> None:
         result = decide(parents_guide=guide(sex=None))
@@ -347,26 +347,57 @@ class MissingDataTests(unittest.TestCase):
         self.assertFalse(reason_with(result, "parents guide not fetched"))
 
 
+def _thin_decision(cfg):
+    """A movie whose violence guide is in with one vote, decided under ``cfg``."""
+    item = policy_fixture.item(media_type=MediaType.MOVIE, title=POST_TITLE, year=POST_YEAR, created_at=CREATED)
+    snapshot = gather.base_signals(
+        item, cfg, tmdb=tmdb(), guide=guide(violence_votes=1), book=None, book_looked_up=False,
+        duplicate_of=None, twin_of=None, now=CREATED,
+    )
+    return evaluate(item, snapshot, cfg.policy, now=CREATED + timedelta(minutes=5))
+
+
 class VoteThresholdTests(unittest.TestCase):
-    def test_one_vote_short_waits(self) -> None:
+    def test_one_vote_short_goes_to_a_person(self) -> None:
+        """Votes come in over weeks, so waiting a day only delays the review."""
         result = decide(parents_guide=guide(sex_votes=4), min_guide_votes=5)
-        self.assertEqual(result.decision, WAIT)
-        self.assertIn("imdb.nudity: only 4 votes, need 5", result.reasons)
+        self.assertEqual(result.decision, REVIEW)
+        self.assertTrue(reason_with(result, "imdb.nudity: only 4 votes, need 5, too few to decide on"))
 
     def test_exactly_the_threshold_is_enough(self) -> None:
         self.assertTrue(
             decide(parents_guide=guide(sex_votes=5, violence_votes=5), min_guide_votes=5).approved
         )
 
-    def test_zero_votes_waits(self) -> None:
+    def test_zero_votes_goes_to_a_person(self) -> None:
         result = decide(parents_guide=guide(sex_votes=0, violence_votes=0))
-        self.assertEqual(result.decision, WAIT)
+        self.assertEqual(result.decision, REVIEW)
         self.assertEqual(len(result.reasons), 2)
 
     def test_violence_votes_are_counted_separately(self) -> None:
         result = decide(parents_guide=guide(violence_votes=1), min_guide_votes=5)
+        self.assertEqual(result.decision, REVIEW)
+        self.assertTrue(reason_with(result, "imdb.violence: only 1 votes, need 5"))
+
+    def test_a_guide_not_fetched_yet_still_waits(self) -> None:
+        """Only a guide that is in with too few votes skips the wait."""
+        result = decide(parents_guide=ParentsGuide())
         self.assertEqual(result.decision, WAIT)
-        self.assertIn("imdb.violence: only 1 votes, need 5", result.reasons)
+
+    def test_a_type_that_approves_without_data_still_approves(self) -> None:
+        cfg = policy_fixture.config(min_votes=5)
+        types = {t: (tp.model_copy(update={"when_data_missing": "approve"}) if tp.mode == "rules" else tp)
+                 for t, tp in cfg.policy.types.items()}
+        cfg = cfg.model_copy(update={"policy": cfg.policy.model_copy(update={"types": types})})
+        decision = _thin_decision(cfg)
+        self.assertEqual(decision.outcome, APPROVE)
+
+    def test_a_rule_that_says_wait_keeps_waiting(self) -> None:
+        cfg = policy_fixture.config(min_votes=5)
+        rules = [r.model_copy(update={"when_missing": "wait"}) for r in cfg.policy.rules]
+        cfg = cfg.model_copy(update={"policy": cfg.policy.model_copy(update={"rules": rules})})
+        decision = _thin_decision(cfg)
+        self.assertEqual(decision.outcome, WAIT)
 
     def test_a_thin_vote_count_cannot_hide_a_severe_rating(self) -> None:
         """Too few votes waits; it does not quietly approve."""
@@ -877,8 +908,8 @@ class FrighteningTests(unittest.TestCase):
 
     def test_frightening_votes_are_counted_separately(self) -> None:
         result = decide(parents_guide=guide(frightening_votes=2), min_guide_votes=5)
-        self.assertEqual(result.decision, WAIT)
-        self.assertIn("imdb.frightening: only 2 votes, need 5", result.reasons)
+        self.assertEqual(result.decision, REVIEW)
+        self.assertTrue(reason_with(result, "imdb.frightening: only 2 votes, need 5"))
 
 
 class CertificationTests(unittest.TestCase):
