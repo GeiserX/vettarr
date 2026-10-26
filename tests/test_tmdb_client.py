@@ -305,6 +305,33 @@ class DetailFieldTests(unittest.TestCase):
         self.assertEqual(result.certifications, {"US": "TV-MA"})
         self.assertIs(result.collection, False)
 
+    def test_a_film_is_released_on_its_first_viewable_date(self) -> None:
+        """A festival premiere is not a release: nobody outside the festival saw it."""
+        payload = {**self.MOVIE, "release_dates": {"results": [
+            {"iso_3166_1": "FR", "release_dates": [
+                {"certification": "", "type": 1, "release_date": "2024-02-10T00:00:00.000Z"}]},
+            {"iso_3166_1": "US", "release_dates": [
+                {"certification": "R", "type": 3, "release_date": "2024-06-07T00:00:00.000Z"}]},
+            {"iso_3166_1": "ES", "release_dates": [
+                {"certification": "12", "type": 4, "release_date": "2024-05-20T00:00:00.000Z"}]},
+        ]}}
+        result, _ = self._details(payload)
+        self.assertEqual(result.released_on, "2024-05-20")
+
+    def test_a_film_with_only_a_premiere_has_no_release(self) -> None:
+        payload = {**self.MOVIE, "release_dates": {"results": [
+            {"iso_3166_1": "FR", "release_dates": [
+                {"certification": "", "type": 1, "release_date": "2024-02-10T00:00:00.000Z"}]},
+        ]}}
+        result, _ = self._details(payload)
+        self.assertIsNone(result.released_on)
+
+    def test_a_series_is_released_on_its_first_air_date(self) -> None:
+        result, _ = self._details(self.SERIES, series=True)
+        self.assertEqual(result.released_on, "2019-01-01")
+        result, _ = self._details({**self.SERIES, "first_air_date": ""}, series=True)
+        self.assertIsNone(result.released_on)
+
     def test_no_word_list_lives_in_the_client(self) -> None:
         """Which keywords matter is the operator's policy, never the client's."""
         import vettarr.checker.tmdb_client as module

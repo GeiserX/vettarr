@@ -529,6 +529,7 @@ Value shapes:
 | | `runtime_minutes` | number | at_least, at_most, between | movie, series |
 | | `rating`, `vote_count` | number | at_least, at_most | movie, series |
 | | `adult`, `collection` | bool | is | movie, series |
+| | `released` (out somewhere on or before today) | bool | is | movie, series |
 | parents guide (`imdb_guide`), voted | `imdb.violence`, `imdb.nudity`, `imdb.profanity`, `imdb.frightening`, `imdb.alcohol` | severity | at_least, at_most | movie, series |
 | release | `size_gb` | number | at_least, at_most, between | all |
 | | `resolution` | resolution | at_least, at_most, any_of, none_of | movie, series |
@@ -608,6 +609,7 @@ Rows decided before this have none of these. Their `auto_reasons` read as reason
 | Signals | Read from | Missing when |
 |---|---|---|
 | title signals | the TMDB record (`/movie` with `release_dates`, `keywords`, `credits`; `/tv` with `content_ratings`, `keywords`, `credits`). `genre` holds the ids and the localised names; `crew` is directors, writers, producers, composer and creators; `cast` the first 20 | no TMDB match; `keyword` also when TMDB lists none, which is silence, not a clean answer |
+| `released` | the TMDB record: the earliest theatrical, digital, physical or TV release in any country, against today's date (a festival premiere does not count); the first air date for a series | TMDB lists no such date |
 | `year` | the TMDB record, else the post | neither has one |
 | `imdb.*` | the parents guide, with the vote breakdown | no IMDb id, not fetched, or fewer votes than `min_votes` |
 | `size_gb`, `resolution`, `release_source`, `codec`, `hdr`, `audio_language`, `subtitles`, `release_group`, `freeleech` | the post and the release name in it. `size_gb` counts 1 GB as 1024 MB; `freeleech` is true for "100% Free" or "freeleech"; `hdr` is false for a release name with no HDR tag. `release_source`, `codec` and `audio_language` are read from the post without its title, so the film *Cam* is not a cam copy. `audio_language` and `subtitles` know the words of [`release_words`](#release_words) | the post does not say |

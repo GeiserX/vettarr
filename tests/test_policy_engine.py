@@ -14,7 +14,7 @@ import logging
 import os
 import threading
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest import mock
 
@@ -987,6 +987,19 @@ class TitleAndGuideSignalTests(unittest.TestCase):
         self.assertEqual(out["certification"], {"US": "R"})
         self.assertEqual(set(out), set(gather.TITLE_SIGNALS))
 
+    def test_released_is_read_against_today(self) -> None:
+        t = TMDBResult(tmdb_id=1, released_on="2026-10-26")
+        self.assertIs(gather.title_signals(t, today=date(2026, 10, 26))["released"], True)
+        self.assertIs(gather.title_signals(t, today=date(2026, 10, 25))["released"], False)
+        self.assertIn("missing", gather.title_signals(TMDBResult(tmdb_id=1))["released"])
+
+    def test_an_unreleased_film_goes_to_a_person(self) -> None:
+        rule = {"id": "out", "check": "released", "is": False, "on_hit": "review", "when_missing": "review"}
+        p = policy(rule)
+        self.assertEqual(evaluate(movie(), {"released": False}, p).outcome, REVIEW)
+        self.assertEqual(evaluate(movie(), {"released": True}, p).outcome, APPROVE)
+        self.assertEqual(evaluate(movie(), {"released": {"missing": "x"}}, p).outcome, REVIEW)
+
     def test_tmdb_off_and_no_match(self) -> None:
         self.assertEqual(gather.title_signals(None, tmdb_on=False)["keyword"], {"unavailable": "tmdb"})
         self.assertIn("missing", gather.title_signals(None)["keyword"])
@@ -1243,7 +1256,7 @@ class ContextAndSearchSignalTests(unittest.TestCase):
             keywords=["x"], certifications={"US": "TV-14"}, original_language="en", countries=["US"],
             runtime=50, vote_average=7.1, vote_count=900, adult=False, collection=False,
             cast=["A"], crew=["B"], studios=["C"], status="Ended", number_of_episodes=20,
-            season_episodes={1: 10},
+            season_episodes={1: 10}, released_on="2024-01-01",
         )
         guide = ParentsGuide(
             fetched=True, sex_rating=severity, violence_rating=severity, profanity_rating=severity,
