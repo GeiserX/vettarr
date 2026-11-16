@@ -270,18 +270,19 @@ ABR has no pending, approved or declined state. A book waits while at least one 
 | URL | `http://<the app's address>/hooks/abreq/<source key>`, so `/hooks/abreq/audiobooks` for the source above |
 | Headers | `Authorization` set to the value of `webhook_secret`, as it is. `Bearer <secret>` works too. |
 | Body type | JSON |
-| Body | `{"event":"{eventType}","asin":"{bookASIN}"}` |
+| Body | `{"event":"{eventType}","asin":"{bookASIN}","user":"{eventUser}"}` |
 
 ABR writes a notification's headers, the secret with them, to its own log at info level. Keep that log private, or leave the notification out and let the poll alone read ABR.
 
-The body names the event and the book. Everything else the app reads from ABR's list: the title, the authors, the narrators, the release date and whether the book is downloaded. So a call can only point at a book that really waits in ABR. Use this body and no other: ABR does not escape what it puts in a JSON body, so a title with a `"` in it would break a body that carries the title.
+The body names the event and the book. Everything else the app reads from ABR's list: the title, the authors, the narrators, the release date and whether the book is downloaded. So a call can only point at a book that really waits in ABR. The user is there only to tell ABR's Test button from a manual request: both send `{bookASIN}` unfilled, and only a manual request fills in the user. The app does not keep or log it. Use this body and no other: ABR does not escape what it puts in a JSON body, so a title with a `"` in it would break a body that carries the title. For the same reason, no ABR username may hold a `"` or a `\`.
 
 The route is outside the login, behind `webhook_secret`, as for [Seerr](#seerr-requests): a wrong or missing header gets 401, and a source with no secret has no route and answers 404. ABR runs its notifications one after another and stops at the first that fails, so the route answers at once and reads the book after it has answered.
 
 | The call | What the app does |
 |---|---|
 | `onNewRequest` with an ASIN | Answers `queued`, then makes the item of the book, unless it is one already. |
-| ABR's Test button | ABR sends its placeholders unfilled. A literal `{bookASIN}` answers `test` and writes one `webhook_test` event. |
+| ABR's Test button | ABR fills in only the event. A literal `{bookASIN}` beside a literal `{eventUser}` answers `test` and writes one `webhook_test` event. |
+| A manual request | A literal `{bookASIN}` with a user filled in. Answers `ignored`. |
 | Anything else | Answers `ignored` and does nothing. |
 
 **The poll.** Every `poll_minutes` the app reads `GET /api/requests?filter=all` once and takes every waiting book that is not an item yet. One call a poll: ABR checks an API key against every key it stores and writes when it was last used, on every call. The first poll runs 20 seconds after the start.
@@ -299,9 +300,9 @@ The route is outside the login, behind `webhook_secret`, as for [Seerr](#seerr-r
 
 ABR answers the download call the same whether it started a download or found nothing, which is why the app reads the book again after it. The call can take a minute while ABR searches. An ABR with no Prowlarr set up answers it with a redirect, which comes back to a person as an error.
 
-**Decided in ABR.** A book somebody downloaded in ABR approves its item, with the reason `decided in AudioBookRequest: the book was downloaded there`. A book nobody asks for any more rejects it. The app sends nothing to ABR in either case, and notices at the next poll. A downloaded book is never deleted: rejecting its item leaves it as it is, and the answer says so. Rerun policy is not offered for a book the policy rejected, because its request was deleted.
+**Decided in ABR.** A book somebody downloaded in ABR approves its item, also one in error (ABR may grab the book in a search of its own after it answered the app's call with nothing done), with the reason `decided in AudioBookRequest: the book was downloaded there`. A book nobody asks for any more rejects it. The app sends nothing to ABR in either case, and notices at the next poll. A downloaded book is never deleted: rejecting its item leaves it as it is, and the answer says so. Rerun policy is not offered for a book the policy rejected, because its request was deleted.
 
-**When a user asks again.** After a rejection deleted the request, a user can ask for the same book again. The poll sees the book waiting beside a rejected item whose rejection deleted it, so it is a new request: the old item is kept as it was, and the request becomes a new item that the policy decides on its own. A rejection whose delete did not reach ABR is sent again at the next poll instead.
+**When a user asks again.** Once a book's request has left ABR, a user can ask for the same book again. It left when a rejection deleted it, or when its user or an ABR admin removed it there. The poll sees the book waiting beside a rejected item whose request left, so it is a new request: the old item is kept as it was, and the request becomes a new item that the policy decides on its own. A rejection whose delete did not reach ABR is sent again at the next poll instead.
 
 **When ABR does not answer.** As for Seerr: the item stays `approved`, says that ABR could not be told, and is tried again after 30 seconds, doubling up to 30 minutes. A delete that could not be sent is sent at the next poll that reaches ABR.
 

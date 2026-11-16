@@ -37,6 +37,7 @@ for name, value in {
     os.environ.setdefault(name, value)
 
 import httpx
+from fastapi import BackgroundTasks
 from fastapi.testclient import TestClient
 
 import policy_fixture
@@ -61,6 +62,7 @@ from vettarr.config.components import components
 from vettarr.config.loader import ConfigError, load_text
 from vettarr.config.schema import AudioBookRequest, Config, Source, warnings
 from vettarr.delivery import abreq as abreq_api
+from vettarr.delivery import http as delivery_http
 from vettarr.delivery.abreq import AbreqClient
 from vettarr.delivery.http import DeliveryError
 from vettarr.models import Download, DownloadStatus, ItemStatus, MediaItem, MediaType
@@ -70,6 +72,8 @@ from vettarr.web import cards, connections, shell
 SECRET = "a-long-shared-secret-0123456789"
 KEY = "audiobooks"
 HOOK = f"/hooks/abreq/{KEY}"
+#: What ABR's Test button sends for the body the docs give: only the event filled in.
+TEST_BODY = {"event": "onNewRequest", "asin": "{bookASIN}", "user": "{eventUser}"}
 BOOK, OTHER = "B0ABCDEF12", "B0ZZZZZZ99"
 T0 = datetime.now(timezone.utc).replace(microsecond=0) - timedelta(hours=1)
 #: What the catalogue says of a book no rule minds.
@@ -273,7 +277,9 @@ class ClientTests(SourceCase):
         with mock.patch.object(self.client._api._http, "request", spy):
             run(self.client.auto_download(BOOK))
             run(self.client.wishlist())
-        self.assertEqual(seen["auto-download"], abreq_api.AUTO_DOWNLOAD_SECONDS)
+        # ABR searches Prowlarr inside the call, which can take a minute.
+        self.assertGreaterEqual(seen["auto-download"], 60)
+        self.assertGreater(seen["auto-download"], delivery_http.TIMEOUT_SECONDS)
         self.assertIsNone(seen["requests"])
 
     def test_a_redirect_to_the_prowlarr_settings_is_an_error_and_is_not_followed(self) -> None:
@@ -378,9 +384,32 @@ class WebhookTests(HookCase):
         self.assertEqual(len(self.store.all(MediaItem)), 1)
 
     def test_abr_s_test_button_answers_test_and_writes_one_event(self) -> None:
-        resp = self.send({"event": "{eventType}", "asin": "{bookASIN}"})
+        resp = self.send(TEST_BODY)
         self.assertEqual((resp.status_code, resp.json()), (200, {"result": "test"}))
         self.assertEqual(drain(), [(events.WEBHOOK_TEST, None, {"source": KEY, "app": "AudioBookRequest"})])
+        self.assertEqual(self.abr.calls, [])
+
+    def test_a_manual_request_is_ignored_and_is_no_test(self) -> None:
+        # A book not on Audible: ABR fills in the user, and has no ASIN to fill in.
+        resp = self.send({"event": "onNewRequest", "asin": "{bookASIN}", "user": "reader"})
+        self.assertEqual((resp.status_code, resp.json()), (200, {"result": "ignored"}))
+        self.assertEqual(drain(), [])
+        self.assertEqual(self.abr.calls, [])
+
+    def test_the_route_answers_before_it_reads_abr(self) -> None:
+        # ABR waits on each notification before the next, and stops at the
+        # first that fails: the book is read in a task run after the answer.
+        self.ask()
+        later = mock.AsyncMock(return_value="added")
+        real_add = BackgroundTasks.add_task
+        with mock.patch.object(abreq_source, "hook", later), \
+                mock.patch.object(BackgroundTasks, "add_task", autospec=True, side_effect=real_add) as add_task:
+            resp = self.send({"event": "onNewRequest", "asin": BOOK})
+        self.assertEqual(resp.json(), {"result": "queued"})
+        add_task.assert_called_once()
+        self.assertIs(add_task.call_args.args[1], later)
+        self.assertEqual(add_task.call_args.args[3], BOOK)
+        later.assert_awaited_once()
         self.assertEqual(self.abr.calls, [])
 
     def test_other_events_and_bad_asins_are_ignored(self) -> None:
@@ -399,7 +428,7 @@ class WebhookTests(HookCase):
         for secret in ("not-the-secret-0123456789abc", "", None, "Bearer wrong"):
             with self.subTest(secret=secret):
                 self.assertEqual(self.send({"event": "onNewRequest", "asin": BOOK}, secret=secret).status_code, 401)
-        self.assertEqual(self.send({"event": "{eventType}", "asin": "{bookASIN}"}, secret=f"Bearer {SECRET}").json(),
+        self.assertEqual(self.send(TEST_BODY, secret=f"Bearer {SECRET}").json(),
                          {"result": "test"})
         self.assertEqual(self.abr.calls, [])
 
@@ -459,6 +488,20 @@ class PolicyTests(SourceCase):
         self.assertTrue(run(actions.approve(item.id)).ok)
         self.work()
         self.assertEqual((item.status, len(self.grabs())), (ItemStatus.DOWNLOADING, 2))
+
+    def test_an_item_in_error_whose_book_abr_then_downloads_is_brought_up_to_date(self) -> None:
+        # ABR answered with nothing done (its own search for the book was
+        # running), and that search grabbed the book after.
+        item = self.taken()
+        self.work()
+        self.assertEqual(item.status, ItemStatus.ERROR)
+        self.abr.books[BOOK]["downloaded"] = True
+        self.assertEqual(self.poll().reflected, 1)
+        self.assertEqual((item.status, item.error_message), (ItemStatus.APPROVED, None))
+        self.work()
+        self.assertEqual((item.status, len(self.grabs())), (ItemStatus.DOWNLOADING, 1))
+        self.assertIn("decided in AudioBookRequest: the book was downloaded there", self.reasons(item))
+        self.assertEqual(self.poll().reflected, 0)
 
     def test_prowlarr_s_refusal_and_a_missing_prowlarr_come_back_to_a_person(self) -> None:
         for setup, said in (
@@ -561,6 +604,52 @@ class PolicyTests(SourceCase):
         self.assertEqual((item.status, self.grabs()), (ItemStatus.DOWNLOADING, []))
         self.assertIn("decided in AudioBookRequest: the book was downloaded there", self.reasons(item))
 
+    def _asked_again_after(self, item: MediaItem) -> None:
+        """The book is asked for again: a new item, and nothing deleted in ABR."""
+        self.assertEqual(item.status, ItemStatus.REJECTED)
+        self.book = PLAIN
+        self.ask(user="someone-else", at="2026-11-12T09:00:00")
+        self.assertEqual(self.poll().added, 1)
+        self.assertEqual(self.deletes(), [])
+        self.assertIn(BOOK, self.abr.requests)
+        new = self.item()
+        self.assertNotEqual(new.id, item.id)
+        self.assertTrue(abreq_api.retired(item.origin_key))
+        self.decide()
+        self.assertEqual(new.status, ItemStatus.APPROVED)
+
+    def test_a_request_its_user_removed_and_asked_for_again_is_a_new_item(self) -> None:
+        self.held()
+        item = self.taken()
+        self.abr.requests.pop(BOOK)
+        self.assertEqual(self.poll().reflected, 1)
+        self._asked_again_after(item)
+
+    def test_a_request_gone_before_a_reviewer_s_reject_and_asked_for_again_is_a_new_item(self) -> None:
+        self.held()
+        item = self.taken()
+        self.abr.requests.pop(BOOK)
+        result = run(actions.reject(item.id, self.posts))
+        self.assertIn("already gone", result.message)
+        self._asked_again_after(item)
+
+    def test_a_request_gone_before_a_reviewer_s_approve_and_asked_for_again_is_a_new_item(self) -> None:
+        self.held()
+        item = self.taken()
+        self.assertTrue(run(actions.approve(item.id)).ok)
+        self.abr.requests.pop(BOOK)
+        self.work()
+        self.assertIn("removed there", item.error_message)
+        self._asked_again_after(item)
+
+    def test_two_sources_on_one_abr_make_one_item_of_a_book(self) -> None:
+        other = self.source.model_copy(update={"key": "audiobooks-b"})
+        self.ask()
+        self.poll()
+        run(abreq_source.poll(other))
+        run(abreq_source.hook(other, BOOK))
+        self.assertEqual(len(self.store.all(MediaItem)), 1)
+
     def test_an_unfinished_item_is_queued_again(self) -> None:
         self.ask()
         self.poll()
@@ -632,8 +721,12 @@ class RejectionTests(SourceCase):
         self.assertEqual(item.status, ItemStatus.REJECTED)
         self.assertIn(BOOK, self.abr.requests)
         self.abr.down = None
+        self.abr.calls.clear()
         done = self.poll()
         self.assertEqual((done.added, done.declined), (0, 1))
+        # The poll's own read of the list is the one the delete goes by.
+        self.assertEqual([(c.method, c.path) for c in self.abr.calls],
+                         [("GET", "/api/requests"), ("DELETE", f"/api/requests/{BOOK}")])
         self.assertNotIn(BOOK, self.abr.requests)
         self.assertEqual(len(self.store.all(MediaItem)), 1)
 

@@ -38,7 +38,7 @@ import re
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Awaitable, Callable
+from typing import Any, Awaitable, Callable, Iterable
 
 from sqlalchemy import select, update
 
@@ -915,8 +915,13 @@ async def reflect_request(item_id: int, status: int | None) -> str | None:
     return await _reflect(item_id, declined, _decided(status) if declined else _APPROVED_IN_SEERR, SEERR)
 
 
-async def _reflect(item_id: int, declined: bool, reason: str, target: str) -> str | None:
-    """Write a decision taken in the app a request came from on an item that still waits here."""
+async def _reflect(
+    item_id: int, declined: bool, reason: str, target: str, approvable: Iterable[ItemStatus] = _UNDECIDED,
+) -> str | None:
+    """Write a decision taken in the app a request came from on an item that still waits here.
+
+    ``approvable`` are the statuses an approval taken there moves an item from.
+    """
     now = datetime.now(timezone.utc)
     async with async_session() as session:
         row = await session.get(MediaItem, item_id)
@@ -928,7 +933,7 @@ async def _reflect(item_id: int, declined: bool, reason: str, target: str) -> st
                 "status": ItemStatus.REJECTED, "error_message": reason[0].upper() + reason[1:],
             }
         else:
-            held = list(_UNDECIDED)
+            held = list(approvable)
             values = {"status": ItemStatus.APPROVED, "error_message": None}
         moved = await session.execute(
             update(MediaItem)
@@ -975,6 +980,24 @@ def deleted_here(row: Any) -> bool:
     """Whether the item's own rejection deleted its AudioBookRequest request."""
     return row is not None and any(
         r["kind"] == REASON_KIND and r["text"] == f"rejected: {ABREQ_DELETED}" for r in _with_reasons(row, [])
+    )
+
+
+#: What an item says once its request has left AudioBookRequest, whoever
+#: removed it: this app's delete, the user, or an ABR admin.
+_ABREQ_LEFT = frozenset({
+    f"rejected: {ABREQ_DELETED}", f"rejected: {_ABREQ_GONE}", _ABREQ_REMOVED, _ABREQ_DELETED_HERE,
+})
+
+
+def abreq_request_left(row: Any) -> bool:
+    """Whether the item's AudioBookRequest request is known to be gone, so a later one for the book is new.
+
+    False for a rejection whose delete failed, was only a dry run, or was
+    never sent: the request it rejected may still be the one ABR lists.
+    """
+    return row is not None and any(
+        r["kind"] == REASON_KIND and r["text"] in _ABREQ_LEFT for r in _with_reasons(row, [])
     )
 
 
@@ -1047,7 +1070,13 @@ async def _answer_abreq(item: Any, asin: str, config: Config) -> str:
     return await _record_handed(item, row, ABREQ, Handed(remote_id=asin), [note])
 
 
-async def decline_abreq(item_id: int, asin: str, config: Config | None = None) -> TakenBack:
+#: ``decline_abreq``'s ``entry`` when the caller has not read the list.
+_UNREAD: Any = object()
+
+
+async def decline_abreq(
+    item_id: int, asin: str, config: Config | None = None, *, entry: dict[str, Any] | None = _UNREAD,
+) -> TakenBack:
     """Delete in AudioBookRequest the request a rejected item is, and write on the item what that did.
 
     Only a book that waits is deleted: one already downloaded stays as it
@@ -1055,6 +1084,10 @@ async def decline_abreq(item_id: int, asin: str, config: Config | None = None) -
     AudioBookRequest tells none of them. When it cannot be told, the request
     still waits there: the source's next poll finds it beside a rejected
     item and deletes it then.
+
+    ``entry`` is the book's entry when the caller read the list already (the
+    poll): every call costs ABR a key check and a write, so it is not read
+    twice.
     """
     client = client_for(ABREQ, config)
     if client is None:
@@ -1063,7 +1096,8 @@ async def decline_abreq(item_id: int, asin: str, config: Config | None = None) -
         )
     else:
         try:
-            entry = await client.entry(asin)
+            if entry is _UNREAD:
+                entry = await client.entry(asin)
             if entry is not None and not abreq_api.fulfilled(entry):
                 await client.delete(asin)
         except DeliveryError as exc:
@@ -1089,10 +1123,13 @@ async def reflect_abreq(item_id: int, downloaded: bool) -> str | None:
 
     ``downloaded`` True: somebody had it downloaded there, and the item is
     approved; the worker then records it handed over without sending
-    anything. False: nobody asks for it any more, and the item is rejected.
+    anything. That holds for an item in error too: ABR answers a download
+    call with nothing done while a search of its own for the book runs, and
+    that search may grab it after. False: nobody asks for it any more, and
+    the item is rejected.
     """
     reason = _ABREQ_DOWNLOADED_THERE if downloaded else _ABREQ_REMOVED
-    return await _reflect(item_id, not downloaded, reason, ABREQ)
+    return await _reflect(item_id, not downloaded, reason, ABREQ, REVIEWABLE_STATUSES)
 
 
 async def decline_for(item_id: int, origin_key: str | None, config: Config | None = None) -> TakenBack | None:

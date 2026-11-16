@@ -15,7 +15,7 @@ however many users asked for it.
 Two ways in, one item:
 
 - the webhook (``hook``): an ABR notification on ``onNewRequest`` POSTs
-  ``{"event": "{eventType}", "asin": "{bookASIN}"}`` to
+  ``{"event": "{eventType}", "asin": "{bookASIN}", "user": "{eventUser}"}`` to
   ``/hooks/abreq/<source key>``. ABR sends it once, and runs its
   notifications one after another, stopping at the first that fails; the
   route answers at once and does the work after.
@@ -28,15 +28,16 @@ secret can make an item of a book nobody asked for.
 
 The poll is also where the two sides are compared:
 
-- a book still waiting in ABR whose item is rejected here is deleted: the
-  delete that could not be sent when the item was rejected. If that delete
-  did go through, the book waits again because somebody asked for it again:
-  the old item is retired, and the new request becomes an item of its own;
+- a book still waiting in ABR whose item is rejected here is deleted when
+  that rejection's delete failed or was never sent. Once the request left
+  ABR, by that delete, by its user or by an ABR admin, the book waits again
+  because somebody asked for it again: the old item is retired, and the new
+  request becomes an item of its own;
 - a book still waiting whose item the pipeline never finished is handed to
   the pipeline again;
-- an item that still waits here whose book was downloaded in ABR, or that
-  nobody asks for any more, was decided there, and the item is written to
-  match.
+- an item that still waits here (in error too) whose book was downloaded
+  in ABR, or that nobody asks for any more, was decided there, and the item
+  is written to match.
 """
 
 from __future__ import annotations
@@ -63,18 +64,25 @@ log = logging.getLogger(__name__)
 
 #: ``telegram_chat_id`` of an item that is an AudioBookRequest request. No
 #: Telegram chat id is this far from zero. Its ``telegram_message_id`` is a
-#: hash of the item's key, and the item's own id negated once it is retired.
+#: hash of the book's ASIN, and the item's own id negated once it is retired.
 ABREQ_CHAT = -(1 << 62)
-#: What ABR's own test button sends: its placeholders, not filled in.
+#: What ABR's own test button sends: its placeholders, not filled in. It
+#: fills only ``{eventType}``. A manual request (a book not on Audible) fills
+#: the user but has no ASIN either, so the two are told apart by the user.
 TEST_ASIN = "{bookASIN}"
+TEST_USER = "{eventUser}"
 NEW_REQUEST = "onnewrequest"
 #: An Audible product page, which works for any ASIN.
 AUDIBLE = "https://www.audible.com/pd/{asin}"
 
 
-def message_id(origin_key: str) -> int:
-    """A stable positive 63-bit number for an item's key: the unique column it has to fill."""
-    return int.from_bytes(hashlib.sha256(origin_key.encode()).digest()[:8], "big") >> 1
+def message_id(asin: str) -> int:
+    """A stable positive 63-bit number for a book: the unique column its item has to fill.
+
+    The ASIN alone, not the source: two abreq sources on one ABR then make one
+    item of a book, the first source's, as two seerr sources do of a request.
+    """
+    return int.from_bytes(hashlib.sha256(f"abreq:{asin}".encode()).digest()[:8], "big") >> 1
 
 
 # ---------------------------------------------------------------------------
@@ -92,16 +100,18 @@ class Hook:
 
 
 def read_hook(payload: Any) -> Hook:
-    """Read the body the docs tell the operator to set: ``{"event": "{eventType}", "asin": "{bookASIN}"}``.
+    """Read the body the docs tell the operator to set.
 
-    ABR's test button sends the template with its placeholders left as they
-    are, so a literal ``{bookASIN}`` is the test.
+    ``{"event": "{eventType}", "asin": "{bookASIN}", "user": "{eventUser}"}``.
+    ABR's test button fills in only the event, so a literal ``{bookASIN}``
+    beside a literal ``{eventUser}`` is the test. A literal ``{bookASIN}``
+    with a user is a manual request, which has no ASIN, and is ignored.
     """
     if not isinstance(payload, dict):
         return Hook("", None)
     event = str(payload.get("event") or "").strip()
     raw = str(payload.get("asin") or "").strip()
-    if raw == TEST_ASIN or event == "{eventType}":
+    if raw == TEST_ASIN and str(payload.get("user") or "").strip() == TEST_USER:
         return Hook(event, None, test=True)
     asin = raw.upper()
     return Hook(event.lower(), asin if abreq_api.ASIN.fullmatch(asin) else None)
@@ -130,12 +140,15 @@ async def _known(source: Source, asin: str) -> SimpleNamespace | None:
 
 
 def asked_again(held: Any) -> bool:
-    """Whether a book still waiting in ABR is a new request: its item is rejected and that deleted the request.
+    """Whether a book still waiting in ABR is a new request: its item is rejected and its request left ABR.
 
-    The delete removed every request for the book. Whatever ABR lists for it
-    now was asked for after it.
+    The request left by this app's delete (which removed every request for
+    the book), or because its user or an ABR admin removed it. Whatever ABR
+    lists for the book now was asked for after that. A rejection whose delete
+    failed or was never sent is not this: the request it rejected may still
+    be the one listed, and the poll deletes it.
     """
-    return held.status == ItemStatus.REJECTED and delivery.deleted_here(held)
+    return held.status == ItemStatus.REJECTED and delivery.abreq_request_left(held)
 
 
 async def _retire(source: Source, held: SimpleNamespace, asin: str) -> None:
@@ -152,7 +165,7 @@ async def _retire(source: Source, held: SimpleNamespace, asin: str) -> None:
         )
         await session.commit()
     log.info(
-        "Source %s: book %s was asked for again after item %d's rejection deleted its request; "
+        "Source %s: book %s was asked for again after item %d's request left AudioBookRequest; "
         "the item is retired and the request is taken as a new one", source.key, asin, held.id,
     )
 
@@ -197,7 +210,7 @@ async def take(source: Source, entry: dict[str, Any], config: Config | None = No
     lines.append(AUDIBLE.format(asin=asin))
     origin_key = abreq_api.request_key(source.key, asin)
     values: dict[str, Any] = {
-        "telegram_message_id": message_id(origin_key),
+        "telegram_message_id": message_id(asin),
         "telegram_chat_id": ABREQ_CHAT,
         "raw_text": "\n".join(lines),
         "status": ItemStatus.PENDING_PARSE,
@@ -278,7 +291,7 @@ async def poll(source: Source, config: Config | None = None) -> Polled:
                     # book: it was recorded once, and is not again.
                     continue
                 # Rejected here and still waiting there: the delete never arrived.
-                taken = await delivery.decline_abreq(held.id, asin, config)
+                taken = await delivery.decline_abreq(held.id, asin, config, entry=entry)
                 done.declined += not taken.failed
             elif held.status in ingest.UNFINISHED:
                 done.requeued += await ingest.add_again(held.id, held.status)
