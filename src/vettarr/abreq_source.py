@@ -292,7 +292,7 @@ async def poll(source: Source, config: Config | None = None) -> Polled:
                     continue
                 # Rejected here and still waiting there: the delete never arrived.
                 taken = await delivery.decline_abreq(held.id, asin, config, entry=entry)
-                done.declined += not taken.failed
+                done.declined += taken is not delivery.NOT_REJECTED and not taken.failed
             elif held.status in ingest.UNFINISHED:
                 done.requeued += await ingest.add_again(held.id, held.status)
         except Exception:

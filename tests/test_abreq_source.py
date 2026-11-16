@@ -731,6 +731,32 @@ class RejectionTests(SourceCase):
         self.assertEqual(len(self.store.all(MediaItem)), 1)
 
 
+    def test_a_person_s_approval_after_the_poll_read_the_item_stops_its_late_delete(self) -> None:
+        self.refused()
+        self.ask()
+        self.poll()
+        self.abr.down = httpx.ConnectError
+        self.decide()
+        item = self.item()
+        self.abr.down = None
+        self.abr.calls.clear()
+        decline = delivery.decline_abreq
+
+        async def approved_first(item_id, *args, **kwargs):
+            # A person approves the policy's rejection after the poll read
+            # the item as rejected, before the poll reaches its book.
+            self.assertTrue((await actions.approve(item_id)).ok)
+            return await decline(item_id, *args, **kwargs)
+
+        with mock.patch.object(delivery, "decline_abreq", approved_first):
+            done = self.poll()
+        self.assertEqual(done.declined, 0)
+        self.assertEqual(self.deletes(), [])
+        self.assertIn(BOOK, self.abr.requests)
+        self.assertEqual(item.status, ItemStatus.APPROVED)
+        self.assertNotIn(f"rejected: {delivery.ABREQ_DELETED}", self.reasons(item))
+
+
 class DryRunTests(SourceCase):
     REJECTING = True
 

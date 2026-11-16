@@ -36,6 +36,7 @@ from __future__ import annotations
 import logging
 import re
 import time
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Awaitable, Callable, Iterable
@@ -838,6 +839,22 @@ _GONE = "Its Seerr request was already gone from Seerr."
 _NOT_PENDING = "Its Seerr request is no longer pending, so it stays as it is in Seerr."
 
 
+@asynccontextmanager
+async def _still_rejected(item_id: int):
+    """Hold the item's row while a decline is sent, and say whether it is still rejected.
+
+    A poll reads every item's status before its loop, and a person can
+    approve a policy rejection while the loop awaits other books. The row
+    lock makes that approval wait until the decline is sent, and the status
+    is read again under it, so a decline never goes out for an item a person
+    approved first.
+    """
+    async with async_session() as session:
+        row = await session.get(MediaItem, item_id, with_for_update=True)
+        yield row is not None and row.status == ItemStatus.REJECTED
+        await session.commit()
+
+
 async def decline_request(
     item_id: int, request_id: int, config: Config | None = None,
 ) -> TakenBack:
@@ -859,9 +876,12 @@ async def decline_request(
         async with async_session() as session:
             row = await session.get(MediaItem, item_id)
         try:
-            status = await request_status(client, request_id, row)
-            if status == seerr_api.REQUEST_PENDING:
-                await client.decline(request_id)
+            async with _still_rejected(item_id) as rejected:
+                if not rejected:
+                    return NOT_REJECTED
+                status = await request_status(client, request_id, row)
+                if status == seerr_api.REQUEST_PENDING:
+                    await client.decline(request_id)
         except DeliveryError as exc:
             if exc.status == 404:
                 taken = TakenBack(_GONE)
@@ -1096,10 +1116,13 @@ async def decline_abreq(
         )
     else:
         try:
-            if entry is _UNREAD:
-                entry = await client.entry(asin)
-            if entry is not None and not abreq_api.fulfilled(entry):
-                await client.delete(asin)
+            async with _still_rejected(item_id) as rejected:
+                if not rejected:
+                    return NOT_REJECTED
+                if entry is _UNREAD:
+                    entry = await client.entry(asin)
+                if entry is not None and not abreq_api.fulfilled(entry):
+                    await client.delete(asin)
         except DeliveryError as exc:
             log.warning("Could not delete the AudioBookRequest request of item %d: %s", item_id, exc)
             taken = TakenBack(
@@ -1378,6 +1401,12 @@ class TakenBack:
     #: The target could not be told, so what the delivery made is still
     #: there and still fetching.
     failed: bool = False
+
+
+#: What a decline answers when the item stopped being rejected before it was
+#: sent: a person approved it after the poll read it. Nothing is sent and
+#: nothing is written on the item.
+NOT_REJECTED = TakenBack("The item is no longer rejected, so nothing was sent.")
 
 
 def _season_words(numbers: list[int]) -> str:
