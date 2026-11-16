@@ -1,4 +1,4 @@
-FROM python:3.14-slim AS builder
+FROM python:3.15-slim AS builder
 
 WORKDIR /app
 COPY pyproject.toml config.example.yaml ./
@@ -14,7 +14,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certifi
     && rm -rf /tmp/tailwind
 RUN pip install --no-cache-dir .
 
-FROM python:3.14-slim
+FROM python:3.15-slim
 
 # --only-upgrade ca-certificates: the base image's 20250419 still trusts the
 # compromised eMudhra intermediates; trixie-security distrusts them.
