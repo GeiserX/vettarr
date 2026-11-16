@@ -35,7 +35,7 @@ from starlette.datastructures import FormData
 
 from vettarr import dryrun, events
 from vettarr.config.loader import ConfigError
-from vettarr.config.schema import Config, FormatProfile
+from vettarr.config.schema import REQUEST_KINDS, Config, FormatProfile
 from vettarr.config.signals import MEDIA_TYPES
 from vettarr.config.writer import ConfigReadOnly
 from vettarr.database import async_session
@@ -151,6 +151,11 @@ BLOCKS: dict[str, Block] = {
         Block(
             "integrations.seerr", "Seerr", "Requests in Seerr, as a source and as a delivery target.",
             (_ON, _ADDRESS, _API_KEY, F("user_id", "User id", "int", hint="The Seerr user requests are made as. Without it a request is approved as the admin.")),
+            "integrations", test=True,
+        ),
+        Block(
+            "integrations.abreq", "AudioBookRequest", "Audiobook requests in AudioBookRequest, as a source.",
+            (_ON, _ADDRESS, F("api_key", "API key", "secret", hint="An admin's key: only an admin sees and decides every user's requests.")),
             "integrations", test=True,
         ),
         Block(
@@ -305,6 +310,7 @@ SOURCE_KINDS = (
     ("userbot", "A group or channel, read as you", "Reads the chat with your own Telegram account. The only kind that can read what was posted before."),
     ("bot", "The bot", "The bot receives what is sent to it: in a group, a channel, or in private."),
     ("seerr", "Seerr requests", "Pending requests in Seerr, decided by the policy."),
+    ("abreq", "AudioBookRequest requests", "Audiobooks asked for in AudioBookRequest, decided by the policy."),
 )
 POST_ACTIONS = ("none", "react", "delete")
 
@@ -349,7 +355,7 @@ def _source_posted(data: FormData) -> dict[str, Any]:
 def _source_yaml(values: dict[str, Any], old: dict[str, Any]) -> dict[str, Any]:
     kind = values["kind"]
     out: dict[str, Any] = {"key": values["key"], "kind": kind}
-    posts = kind != "seerr"
+    posts = kind not in REQUEST_KINDS
     if posts:
         chat = values["chat"]
         out["chat"] = int(chat) if _WHOLE.match(chat) else chat
@@ -368,12 +374,12 @@ def _source_yaml(values: dict[str, Any], old: dict[str, Any]) -> dict[str, Any]:
             out[name] = values[name]
     if values["notify_on_review"] or "notify_on_review" in old:
         out["notify_on_review"] = values["notify_on_review"]
-    if kind == "seerr" and values["poll_minutes"]:
+    if not posts and values["poll_minutes"]:
         out["poll_minutes"] = configfile.number(values["poll_minutes"])
     # A secret is written only when a new one is typed; left empty, the file keeps its own.
-    if kind == "seerr" and values["webhook_secret"]:
+    if not posts and values["webhook_secret"]:
         out["webhook_secret"] = values["webhook_secret"]
-    elif kind == "seerr" and not values["webhook_secret_clear"] and "webhook_secret" in old:
+    elif not posts and not values["webhook_secret_clear"] and "webhook_secret" in old:
         out["webhook_secret"] = old["webhook_secret"]
     # What the form has no field for stays as the file has it.
     for name, value in old.items():
@@ -641,7 +647,7 @@ def checklist(config: Config) -> list[dict[str, Any]]:
         {"done": done, "name": name, "missing": missing, "href": href}
         for done, name, missing, href in (
             (bool(config.sources), "A source",
-             "No source yet, so nothing arrives. Add a Telegram group, the bot or Seerr.", "#sources"),
+             "No source yet, so nothing arrives. Add a Telegram group, the bot, Seerr or AudioBookRequest.", "#sources"),
             (on("tmdb"), "A TMDB key",
              "No TMDB key, so no title is looked up and every rule on a title or on the IMDb guide sees missing data.",
              "#integrations"),
@@ -827,7 +833,7 @@ async def save_source(request: Request):
     data = await request.form()
     values = _source_posted(data)
     if values["kind"] not in {kind for kind, *_ in SOURCE_KINDS}:
-        return HTMLResponse("A source is a userbot, a bot or seerr.", status_code=400)
+        return HTMLResponse("A source is a userbot, a bot, seerr or abreq.", status_code=400)
     doc = state.candidate()
     sources = _sequence(doc, "sources")
     at = _index(sources, values["original"]) if values["original"] else None

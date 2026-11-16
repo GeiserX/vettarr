@@ -5,6 +5,8 @@
 {% set slug = v.original or ('new-' ~ v.kind) %}
 {% set ro = not state.writable %}
 {% set effect = {'none': 'left alone', 'react': 'reacted to', 'delete': 'deleted'} %}
+{# A source that is another app's requests, not a chat: Seerr or AudioBookRequest. #}
+{% set app = {'seerr': 'Seerr', 'abreq': 'AudioBookRequest'}.get(v.kind) %}
 {% macro bad(name) %}{% if e[name] %} aria-invalid="true" aria-describedby="source-{{ slug }}-{{ name }}-error"{% endif %}{% endmacro %}
 {% macro error(name) %}{% if e[name] %}<p class="field-error" id="source-{{ slug }}-{{ name }}-error"><span aria-hidden="true">&#10007;</span><span>{{ e[name] }}</span></p>{% endif %}{% endmacro %}
 <div id="source-form-{{ slug }}">
@@ -23,7 +25,7 @@
                 {{ error('key') }}
             </div>
             {% endif %}
-            {% if v.kind != 'seerr' %}
+            {% if not app %}
             <div>
                 <label class="label" for="source-{{ slug }}-chat">Chat</label>
                 <input class="input font-mono" id="source-{{ slug }}-chat" name="chat" value="{{ v.chat }}" placeholder="{{ '-1001234567890' if v.kind == 'userbot' else 'private' }}" autocapitalize="none" spellcheck="false"{{ bad('chat') }}>
@@ -42,9 +44,9 @@
                 {{ error('backfill') }}
             </div>
             {% endif %}
-            {% if v.kind == 'seerr' %}
+            {% if app %}
             <div>
-                <label class="label" for="source-{{ slug }}-poll_minutes">Minutes between two reads of Seerr</label>
+                <label class="label" for="source-{{ slug }}-poll_minutes">Minutes between two reads of {{ app }}</label>
                 <input class="input" id="source-{{ slug }}-poll_minutes" name="poll_minutes" value="{{ v.poll_minutes }}" placeholder="5" inputmode="numeric"{{ bad('poll_minutes') }}>
                 {{ error('poll_minutes') }}
             </div>
@@ -60,10 +62,11 @@
                     <span>Remove it from the file</span>
                 </label>
                 {% endif %}
-                <p class="hint">What Seerr's webhook sends as its Authorization header to <code>/hooks/seerr/{{ v.key or '&lt;key&gt;'|safe }}</code>: at least 16 characters, or a <code>${VAR}</code>. Without it there is no webhook, and the poll alone reads Seerr.</p>
+                <p class="hint">What {{ app }}'s webhook sends as its Authorization header to <code>/hooks/{{ v.kind }}/{{ v.key or '&lt;key&gt;'|safe }}</code>: at least 16 characters, or a <code>${VAR}</code>. Without it there is no webhook, and the poll alone reads {{ app }}.</p>
                 {{ error('webhook_secret') }}
             </div>
             {% endif %}
+            {% if v.kind != 'abreq' %}
             <div>
                 <label class="label" for="source-{{ slug }}-allowed_senders">Whose messages count</label>
                 <select class="input" id="source-{{ slug }}-allowed_senders" name="allowed_senders"{{ bad('allowed_senders') }}>
@@ -74,7 +77,8 @@
                 </select>
                 {{ error('allowed_senders') }}
             </div>
-            {% if v.kind != 'seerr' %}
+            {% endif %}
+            {% if not app %}
             <div>
                 <label class="label" for="source-{{ slug }}-direct_adds">Whose own torrent is added as it is</label>
                 <select class="input" id="source-{{ slug }}-direct_adds" name="direct_adds"{{ bad('direct_adds') }}>
@@ -101,7 +105,7 @@
             </div>
             {% endif %}
         </div>
-        {% if format_keys and v.kind != 'seerr' %}
+        {% if format_keys and not app %}
         <fieldset class="plain-fieldset sentence text-sm mt-3"{{ bad('formats') }}>
             <legend class="float-left mr-2 py-2 font-semibold">Read with</legend>
             {% for key in format_keys %}

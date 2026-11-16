@@ -516,10 +516,19 @@ class PageCase(WebCase):
         return session
 
 
+class _AtNoon(datetime):
+    """The page's clock, at the fixture's noon: its 30-day window holds the fixture's decisions."""
+
+    @classmethod
+    def now(cls, tz=None):
+        return NOON.astimezone(tz) if tz else NOON.replace(tzinfo=None)
+
+
 class StatsPageTests(PageCase):
     def page(self, decisions=(), shadow=(), guards=(), downloads=()) -> str:
         self.serve(list(decisions), list(shadow), list(guards), list(downloads))
-        with mock.patch.object(stats, "_providers", return_value=["harbor", "northwind"]):
+        with mock.patch.object(stats, "_providers", return_value=["harbor", "northwind"]), \
+                mock.patch.object(stats, "datetime", _AtNoon):
             resp = self.get("/stats")
         self.assertEqual(resp.status_code, 200)
         return resp.text
@@ -534,7 +543,7 @@ class StatsPageTests(PageCase):
             ],
             shadow=[shadow_row(n, "approve", ItemStatus.COMPLETED) for n in range(12)]
             + [shadow_row(n, "approve", ItemStatus.REJECTED) for n in (12, 13)],
-            guards=[event(events.GUARD, datetime.now(timezone.utc) - timedelta(minutes=5), provider="northwind",
+            guards=[event(events.GUARD, NOON - timedelta(minutes=5), provider="northwind",
                           state="cooldown", reason="HTTP 429", seconds=1800)],
             downloads=[SimpleNamespace(provider="harbor", status="COMPLETED", downloads=3, size=5 * 1024**3)],
         )

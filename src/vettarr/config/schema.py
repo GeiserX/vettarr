@@ -51,6 +51,8 @@ Loc = tuple[Any, ...]
 
 QBIT_DEFAULT_ACCOUNT = "admin"
 WEBHOOK_SECRET_MIN = 16
+#: The source kinds that are another app's requests, not a Telegram chat.
+REQUEST_KINDS = ("seerr", "abreq")
 
 
 class Block(BaseModel):
@@ -62,7 +64,7 @@ class Block(BaseModel):
 
 class Source(Block):
     key: Key
-    kind: Literal["userbot", "bot", "seerr"]
+    kind: Literal["userbot", "bot", "seerr", "abreq"]
     # A chat id, an @username, or "private" (bot only: direct messages).
     chat: int | str | None = None
     backfill: Literal["off", "since_last", "full"] | None = None
@@ -74,7 +76,8 @@ class Source(Block):
     on_reject: Literal["delete", "react", "none"] = "none"
     notify_on_review: bool = False
     poll_minutes: int | None = Field(default=None, ge=1)
-    # Seerr only: what Seerr's webhook sends as its Authorization header.
+    # Seerr and AudioBookRequest only: what their webhook sends as its
+    # Authorization header.
     # Without it the source has no webhook route and is read by the poll alone.
     webhook_secret: SecretStr | None = None
 
@@ -94,7 +97,7 @@ class Source(Block):
                 or secret[:7].lower() == "bearer ":
             raise ValueError(
                 "webhook_secret must be plain ASCII with no space at either end, and must not start "
-                "with 'Bearer ': Seerr sends it as a header, where such a secret never matches"
+                "with 'Bearer ': it is sent as a header, where such a secret never matches"
             )
         return value
 
@@ -107,28 +110,32 @@ class Source(Block):
 
     @model_validator(mode="after")
     def _per_kind(self) -> Source:
-        if self.kind == "seerr":
+        if self.kind in REQUEST_KINDS:
+            kind = self.kind
             if self.chat is not None:
-                raise ValueError("a seerr source has no chat")
+                raise ValueError(f"a {kind} source has no chat")
             if self.on_download != "none" or self.on_reject != "none":
-                raise ValueError("a seerr source has no post to delete or react to; use none")
+                raise ValueError(f"a {kind} source has no post to delete or react to; use none")
             if self.backfill not in (None, "off"):
-                raise ValueError("a seerr source cannot backfill")
+                raise ValueError(f"a {kind} source cannot backfill")
             self.backfill = "off"
             if self.poll_minutes is None:
                 self.poll_minutes = 5
             if self.allowed_senders is None:
                 self.allowed_senders = "anyone"
+            if kind == "abreq" and self.allowed_senders != "anyone":
+                # Its requesters are usernames, and a sender here is a number.
+                raise ValueError("an abreq source takes every user's requests; allowed_senders must be anyone")
             if self.direct_adds not in (None, "off"):
-                raise ValueError("a seerr source carries no torrent; direct_adds must be off")
+                raise ValueError(f"a {kind} source carries no torrent; direct_adds must be off")
             self.direct_adds = "off"
             return self
         if self.direct_adds is None:
             self.direct_adds = "reviewers"
         if self.poll_minutes is not None:
-            raise ValueError("poll_minutes applies to seerr sources only")
+            raise ValueError("poll_minutes applies to seerr and abreq sources only")
         if self.webhook_secret is not None:
-            raise ValueError("webhook_secret applies to seerr sources only")
+            raise ValueError("webhook_secret applies to seerr and abreq sources only")
         if self.chat is None or self.chat == "":
             raise ValueError(f"a {self.kind} source needs a chat")
         if isinstance(self.chat, str) and self.chat != "private" and not self.chat.startswith("@"):
@@ -376,6 +383,13 @@ class Seerr(Integration):
     user_id: int | None = None
 
 
+class AudioBookRequest(Integration):
+    REQUIRED = ("url", "api_key")
+    url: Url | None = None
+    # An admin's key: only an admin sees and decides every user's requests.
+    api_key: SecretStr | None = None
+
+
 class Tmdb(Integration):
     REQUIRED = ("api_key",)
     api_key: SecretStr | None = None
@@ -403,6 +417,7 @@ class Integrations(Block):
     radarr: Arr | None = None
     sonarr: Arr | None = None
     seerr: Seerr | None = None
+    abreq: AudioBookRequest | None = None
     tmdb: Tmdb | None = None
     # Needs no key, so it is on unless a block turns it off.
     imdb_guide: ImdbGuide = Field(default_factory=ImdbGuide)
@@ -861,8 +876,8 @@ def cross_check(cfg: Config) -> list[tuple[Loc, str]]:
             errors.append((("sources", n, "kind"), "a userbot source needs telegram.api_id and telegram.api_hash"))
         if source.kind == "bot" and not (tg and tg.bot_token):
             errors.append((("sources", n, "kind"), "a bot source needs telegram.bot_token"))
-        if source.kind == "seerr" and not cfg.integrations.enabled("seerr"):
-            errors.append((("sources", n, "kind"), "a seerr source needs integrations.seerr"))
+        if source.kind in REQUEST_KINDS and not cfg.integrations.enabled(source.kind):
+            errors.append((("sources", n, "kind"), f"a {source.kind} source needs integrations.{source.kind}"))
 
     for media_type, target in cfg.deliver.items():
         if target == "none":
@@ -1078,5 +1093,17 @@ def warnings(cfg: Config) -> list[tuple[Loc, str]]:
         out.append(
             (("sources", seerr_sources[1]), "more than one seerr source reads the same Seerr; each request "
              "becomes the item of whichever source sees it first")
+        )
+    abreq_sources = [n for n, source in enumerate(cfg.sources) if source.kind == "abreq"]
+    for n in abreq_sources:
+        if cfg.sources[n].webhook_secret is not None and cfg.web is None:
+            out.append(
+                (("sources", n, "webhook_secret"), "the webhook is served by the web UI, and there is no web "
+                 "block; the source is read by the poll alone")
+            )
+    if len(abreq_sources) > 1:
+        out.append(
+            (("sources", abreq_sources[1]), "more than one abreq source reads the same AudioBookRequest; each "
+             "book becomes the item of whichever source sees it first")
         )
     return out

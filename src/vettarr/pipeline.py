@@ -630,19 +630,18 @@ async def process_item(item_id: int) -> None:
 
 
 async def _decline_request(item: MediaItem) -> None:
-    """A rejection the policy made of a Seerr request is passed on to Seerr: the request is declined.
+    """A rejection the policy made of a request is passed on: Seerr declines it, AudioBookRequest deletes it.
 
-    Never raises: the decision is written, and a Seerr that cannot be told
+    Never raises: the decision is written, and an app that cannot be told
     now is told by the source's next poll, which finds the request still
-    pending beside a rejected item.
+    waiting beside a rejected item.
     """
-    asked = seerr_api.request_of(item.origin_key)
-    if asked is None:
+    if delivery.request_kind(item.origin_key) is None:
         return
     try:
-        await delivery.decline_request(item.id, asked[1])
+        await delivery.decline_for(item.id, item.origin_key)
     except Exception:
-        log.exception("Could not decline the Seerr request of item %d", item.id)
+        log.exception("Could not decline the request of item %d", item.id)
 
 
 async def _check_content(

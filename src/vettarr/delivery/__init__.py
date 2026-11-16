@@ -23,6 +23,12 @@ took from Seerr. Its delivery is Seerr itself. Approving it approves the
 request there (``_answer_request``), rejecting it declines the request
 (``decline_request``), and a request somebody decided in Seerr first is
 written on the item and left as it is (``reflect_request``).
+
+A request an ``abreq`` source took from AudioBookRequest is the same kind of
+item. Approving it asks AudioBookRequest to download the book
+(``_answer_abreq``), rejecting it deletes the request (``decline_abreq``),
+and a book somebody downloaded or deleted there first is written on the item
+(``reflect_abreq``). ``request_kind`` says which of the two an item is.
 """
 
 from __future__ import annotations
@@ -30,9 +36,10 @@ from __future__ import annotations
 import logging
 import re
 import time
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Awaitable, Callable
+from typing import Any, Awaitable, Callable, Iterable
 
 from sqlalchemy import select, update
 
@@ -41,7 +48,9 @@ from vettarr.checker.policy import META_IDENTITY, legacy_reasons
 from vettarr.config import settings
 from vettarr.config.schema import Config
 from vettarr.database import async_session
+from vettarr.delivery import abreq as abreq_api
 from vettarr.delivery import seerr as seerr_api
+from vettarr.delivery.abreq import AbreqClient
 from vettarr.delivery.http import DeliveryError
 from vettarr.delivery.radarr import RadarrClient
 from vettarr.delivery.seerr import SeerrClient
@@ -65,10 +74,13 @@ QBITTORRENT = "qbittorrent"
 RADARR = "radarr"
 SONARR = "sonarr"
 SEERR = "seerr"
+#: AudioBookRequest. Never a ``deliver`` target: only the items an ``abreq``
+#: source took from it are handed back to it.
+ABREQ = "abreq"
 NONE = "none"
 #: The targets that take a title and fetch it themselves.
-REMOTE = (RADARR, SONARR, SEERR)
-LABELS = {QBITTORRENT: "qBittorrent", RADARR: "Radarr", SONARR: "Sonarr", SEERR: "Seerr"}
+REMOTE = (RADARR, SONARR, SEERR, ABREQ)
+LABELS = {QBITTORRENT: "qBittorrent", RADARR: "Radarr", SONARR: "Sonarr", SEERR: "Seerr", ABREQ: "AudioBookRequest"}
 
 # What `deliver()` answers, beside the download client's own 'downloading',
 # 'error' and 'no_match'.
@@ -88,6 +100,8 @@ RETRY_LATER = "retry_later"
 
 #: How every reason starts that reports a decision somebody took in Seerr.
 DECIDED_IN_SEERR = "decided in Seerr"
+#: ... and in AudioBookRequest.
+DECIDED_IN_ABREQ = "decided in AudioBookRequest"
 
 #: The kind of an item reason this module writes.
 REASON_KIND = "delivery"
@@ -115,6 +129,19 @@ def target_for(media_type: Any, config: Config | None = None) -> str:
     return config.deliver_to(name)
 
 
+def request_kind(origin_key: str | None) -> str | None:
+    """``SEERR`` or ``ABREQ`` for an item that is a request a source took from that app; None for any other.
+
+    Such an item has no ``deliver`` entry and no post: the app it came from
+    fetches it, and is told the decision.
+    """
+    if seerr_api.request_of(origin_key) is not None:
+        return SEERR
+    if abreq_api.request_of(origin_key) is not None:
+        return ABREQ
+    return None
+
+
 def seasons_of(season: str | None) -> list[int] | None:
     """The season numbers a post names (``S02``, ``S01E03``), or None for the whole series.
 
@@ -133,7 +160,7 @@ _clients: dict[tuple, Any] = {}
 
 
 def client_for(target: str, config: Config | None = None):
-    """The client of an arr or of Seerr, or None while its integration is off. One per URL and key."""
+    """The client of an arr, of Seerr or of AudioBookRequest, or None while its integration is off. One per URL and key."""
     config = config or settings.config
     if target not in REMOTE or not config.integrations.enabled(target):
         return None
@@ -142,6 +169,9 @@ def client_for(target: str, config: Config | None = None):
     if target == SEERR:
         key = (target, block.url, api_key, block.user_id)
         build = lambda: SeerrClient(block.url, api_key, block.user_id)  # noqa: E731
+    elif target == ABREQ:
+        key = (target, block.url, api_key)
+        build = lambda: AbreqClient(block.url, api_key)  # noqa: E731
     else:
         key = (target, block.url, api_key)
         build = lambda: (RadarrClient if target == RADARR else SonarrClient)(block.url, api_key)  # noqa: E731
@@ -188,7 +218,7 @@ class Handed:
 
     #: The target already holds the files; nothing was added.
     in_library: bool = False
-    #: Radarr's movie id, Sonarr's series id, Seerr's request id.
+    #: Radarr's movie id, Sonarr's series id, Seerr's request id, the book's ASIN.
     remote_id: Any = None
     #: True when this hand-over added the entry, turned its monitoring on or
     #: made the request. False when the target already had all of that.
@@ -593,7 +623,9 @@ async def deliver(
 
     An item that is a Seerr request (a ``seerr`` source made it) is not sent
     anywhere by ``deliver``: its request is approved in Seerr. That answers
-    ``DELIVERED``, ``ERROR``, ``DECIDED_ELSEWHERE`` or ``RETRY_LATER``.
+    ``DELIVERED``, ``ERROR``, ``DECIDED_ELSEWHERE`` or ``RETRY_LATER``. The same
+    goes for an AudioBookRequest request, which AudioBookRequest is asked to
+    download.
 
     ``none`` completes the item with nothing fetched. A type the map does
     not list at all is not completed: it comes back to a person (``ERROR``).
@@ -603,6 +635,9 @@ async def deliver(
     if asked is not None:
         # A Seerr request: its delivery is Seerr itself, whatever `deliver` says for the type.
         return await _answer_request(item, asked[1], config)
+    book = abreq_api.request_of(getattr(item, "origin_key", None))
+    if book is not None:
+        return await _answer_abreq(item, book[1], config)
     target = target_for(item.media_type, config)
     if target == QBITTORRENT:
         result = await download_client(item)
@@ -687,8 +722,8 @@ async def request_status(client: SeerrClient, request_id: int, item: Any = None)
     return request.get("status")
 
 
-async def _retry_later(item: Any, problem: str) -> str:
-    """Seerr could not be asked: the item stays approved, and the worker comes back to it.
+async def _retry_later(item: Any, problem: str, target: str = SEERR) -> str:
+    """Seerr (or AudioBookRequest) could not be asked: the item stays approved, and the worker comes back to it.
 
     Never an error and never completed. An approval that only this app knows
     of is not one: the request still waits in Seerr, so the item keeps
@@ -697,16 +732,17 @@ async def _retry_later(item: Any, problem: str) -> str:
     tries = _retries.get(item.id, (0, 0.0))[0] + 1
     wait = min(RETRY_FIRST_SECONDS * 2 ** min(tries - 1, 16), RETRY_MAX_SECONDS)
     _retries[item.id] = (tries, _clock() + wait)
-    message = f"Seerr could not be told yet ({problem}). Its request is still pending there; this is tried again"
+    label = LABELS[target]
+    message = f"{label} could not be told yet ({problem}). Its request is still pending there; this is tried again"
     async with async_session() as session:
         await session.execute(_claimed(item.id).values(status=ItemStatus.APPROVED, error_message=message))
         await session.commit()
     if tries == 1:
         # Once an outage, not once a try.
-        _emit(events.DELIVERY_FAILED, item, SEERR, reason=problem, retrying=True)
+        _emit(events.DELIVERY_FAILED, item, target, reason=problem, retrying=True)
     log.warning(
-        "Seerr could not be asked about the request of item %d (try %d, next in %.0f s): %s",
-        item.id, tries, wait, problem,
+        "%s could not be asked about the request of item %d (try %d, next in %.0f s): %s",
+        label, item.id, tries, wait, problem,
     )
     return RETRY_LATER
 
@@ -803,6 +839,22 @@ _GONE = "Its Seerr request was already gone from Seerr."
 _NOT_PENDING = "Its Seerr request is no longer pending, so it stays as it is in Seerr."
 
 
+@asynccontextmanager
+async def _still_rejected(item_id: int):
+    """Hold the item's row while a decline is sent, and say whether it is still rejected.
+
+    A poll reads every item's status before its loop, and a person can
+    approve a policy rejection while the loop awaits other books. The row
+    lock makes that approval wait until the decline is sent, and the status
+    is read again under it, so a decline never goes out for an item a person
+    approved first.
+    """
+    async with async_session() as session:
+        row = await session.get(MediaItem, item_id, with_for_update=True)
+        yield row is not None and row.status == ItemStatus.REJECTED
+        await session.commit()
+
+
 async def decline_request(
     item_id: int, request_id: int, config: Config | None = None,
 ) -> TakenBack:
@@ -824,9 +876,12 @@ async def decline_request(
         async with async_session() as session:
             row = await session.get(MediaItem, item_id)
         try:
-            status = await request_status(client, request_id, row)
-            if status == seerr_api.REQUEST_PENDING:
-                await client.decline(request_id)
+            async with _still_rejected(item_id) as rejected:
+                if not rejected:
+                    return NOT_REJECTED
+                status = await request_status(client, request_id, row)
+                if status == seerr_api.REQUEST_PENDING:
+                    await client.decline(request_id)
         except DeliveryError as exc:
             if exc.status == 404:
                 taken = TakenBack(_GONE)
@@ -859,7 +914,8 @@ async def declined_by_dry_run(item_id: int) -> bool:
     async with async_session() as session:
         row = await session.get(MediaItem, item_id)
     return row is not None and any(
-        r["kind"] == REASON_KIND and r["text"] == f"rejected: {_WOULD_DECLINE}" for r in _with_reasons(row, [])
+        r["kind"] == REASON_KIND and r["text"] in (f"rejected: {_WOULD_DECLINE}", f"rejected: {_ABREQ_WOULD_DELETE}")
+        for r in _with_reasons(row, [])
     )
 
 
@@ -876,20 +932,28 @@ async def reflect_request(item_id: int, status: int | None) -> str | None:
     if status == seerr_api.REQUEST_PENDING:
         return None
     declined = status is None or status == seerr_api.REQUEST_DECLINED
+    return await _reflect(item_id, declined, _decided(status) if declined else _APPROVED_IN_SEERR, SEERR)
+
+
+async def _reflect(
+    item_id: int, declined: bool, reason: str, target: str, approvable: Iterable[ItemStatus] = _UNDECIDED,
+) -> str | None:
+    """Write a decision taken in the app a request came from on an item that still waits here.
+
+    ``approvable`` are the statuses an approval taken there moves an item from.
+    """
     now = datetime.now(timezone.utc)
     async with async_session() as session:
         row = await session.get(MediaItem, item_id)
         if row is None:
             return None
         if declined:
-            reason = _decided(status)
             held = list(REVIEWABLE_STATUSES)
             values: dict[str, Any] = {
                 "status": ItemStatus.REJECTED, "error_message": reason[0].upper() + reason[1:],
             }
         else:
-            reason = _APPROVED_IN_SEERR
-            held = list(_UNDECIDED)
+            held = list(approvable)
             values = {"status": ItemStatus.APPROVED, "error_message": None}
         moved = await session.execute(
             update(MediaItem)
@@ -904,10 +968,206 @@ async def reflect_request(item_id: int, status: int | None) -> str | None:
     if declined:
         events.emit(
             events.DECLINED, item_id, title=getattr(row, "title", None),
-            media_type=_type_name(getattr(row, "media_type", None)), target=SEERR, reason=reason,
+            media_type=_type_name(getattr(row, "media_type", None)), target=target, reason=reason,
         )
     log.info("Item %d: %s", item_id, reason)
     return "rejected" if declined else "approved"
+
+
+# --- an item that is an AudioBookRequest request -------------------------------
+
+_ABREQ_DOWNLOADED_THERE = f"{DECIDED_IN_ABREQ}: the book was downloaded there"
+_ABREQ_REMOVED = f"{DECIDED_IN_ABREQ}: its request was removed there"
+# What a rejection writes when its delete went through. The source's poll
+# reads it: a request for the book listed after it is somebody asking again.
+ABREQ_DELETED = "Its AudioBookRequest request was deleted."
+_ABREQ_WOULD_DELETE = (
+    "Dry run: its AudioBookRequest request would have been deleted; nothing was sent, and it still waits there."
+)
+_ABREQ_GONE = "Its AudioBookRequest request was already gone."
+_ABREQ_ALREADY = "AudioBookRequest already downloaded the book, and cannot take a download back; it stays as it is there."
+_ABREQ_DELETED_HERE = (
+    "its AudioBookRequest request was deleted when this item was rejected, so the book has to be "
+    "asked for again in AudioBookRequest"
+)
+_ABREQ_NOTHING = (
+    "AudioBookRequest found no release it would download, or was already searching for the book; "
+    "the request still waits there. Approve the item again to ask again"
+)
+
+
+def deleted_here(row: Any) -> bool:
+    """Whether the item's own rejection deleted its AudioBookRequest request."""
+    return row is not None and any(
+        r["kind"] == REASON_KIND and r["text"] == f"rejected: {ABREQ_DELETED}" for r in _with_reasons(row, [])
+    )
+
+
+#: What an item says once its request has left AudioBookRequest, whoever
+#: removed it: this app's delete, the user, or an ABR admin.
+_ABREQ_LEFT = frozenset({
+    f"rejected: {ABREQ_DELETED}", f"rejected: {_ABREQ_GONE}", _ABREQ_REMOVED, _ABREQ_DELETED_HERE,
+})
+
+
+def abreq_request_left(row: Any) -> bool:
+    """Whether the item's AudioBookRequest request is known to be gone, so a later one for the book is new.
+
+    False for a rejection whose delete failed, was only a dry run, or was
+    never sent: the request it rejected may still be the one ABR lists.
+    """
+    return row is not None and any(
+        r["kind"] == REASON_KIND and r["text"] in _ABREQ_LEFT for r in _with_reasons(row, [])
+    )
+
+
+async def _abreq_entry(client: AbreqClient, origin_key: str | None, asin: str) -> dict[str, Any] | None:
+    """The book's entry, or None when it is gone, or when a newer item stands for it."""
+    if abreq_api.retired(origin_key):
+        return None
+    return await client.entry(asin)
+
+
+async def _answer_abreq(item: Any, asin: str, config: Config) -> str:
+    """Carry out the approval of an item that is an AudioBookRequest request: the book is downloaded there.
+
+    The book is read first. One nobody asks for any more rejects the item;
+    one already downloaded there is recorded as handed over, with nothing
+    sent. Otherwise AudioBookRequest is asked to download it, and the book
+    is read again, because that call answers the same whether a release was
+    grabbed or none was found. A book still not downloaded goes back to a
+    person.
+    """
+    client = client_for(ABREQ, config)
+    if client is None:
+        return await _failed(item, ABREQ, "integrations.abreq is off, so its request cannot be carried out")
+    async with async_session() as session:
+        row = await session.get(MediaItem, item.id)
+    origin_key = getattr(row, "origin_key", None) or getattr(item, "origin_key", None)
+    ours = False
+    refused: DeliveryError | None = None
+    try:
+        entry = await _abreq_entry(client, origin_key, asin)
+        if entry is not None and not abreq_api.fulfilled(entry):
+            try:
+                await client.auto_download(asin)
+            except DeliveryError as exc:
+                if exc.status is None or exc.status in (429, 502, 503, 504):
+                    raise
+                # Refused, or failed after the grab (a notification of its own
+                # that failed): the flag says which.
+                refused = exc
+            ours = True
+            if dryrun.active():
+                # Nothing was sent; it is recorded as if the download had started.
+                entry = {"book": {"asin": asin, "downloaded": True}}
+            else:
+                entry = await client.entry(asin)
+    except DeliveryError as exc:
+        if _is_outage(exc):
+            return await _retry_later(item, str(exc), ABREQ)
+        _retries.pop(item.id, None)
+        return await _failed(item, ABREQ, str(exc))
+    _retries.pop(item.id, None)
+
+    if entry is None:
+        reason = _ABREQ_DELETED_HERE if deleted_here(row) else _ABREQ_REMOVED
+        async with async_session() as session:
+            await session.execute(_claimed(item.id).values(
+                status=ItemStatus.REJECTED, error_message=reason[0].upper() + reason[1:],
+                reviewed_at=datetime.now(timezone.utc), reasons=_with_reasons(row, [reason]),
+            ))
+            await session.commit()
+        _emit(events.DECLINED, item, ABREQ, remote_id=asin, reason=reason)
+        log.info("Item %d ('%s'): %s", item.id, item.title, reason)
+        return DECIDED_ELSEWHERE
+    if not abreq_api.fulfilled(entry):
+        said = str(entry.get("download_error") or "").strip()
+        problem = str(refused) if refused is not None else (said[:200] if said else _ABREQ_NOTHING)
+        return await _failed(item, ABREQ, problem)
+    note = "AudioBookRequest started the download" if ours else _ABREQ_DOWNLOADED_THERE
+    # Never this item's making to undo: AudioBookRequest cannot take a download back.
+    return await _record_handed(item, row, ABREQ, Handed(remote_id=asin), [note])
+
+
+#: ``decline_abreq``'s ``entry`` when the caller has not read the list.
+_UNREAD: Any = object()
+
+
+async def decline_abreq(
+    item_id: int, asin: str, config: Config | None = None, *, entry: dict[str, Any] | None = _UNREAD,
+) -> TakenBack:
+    """Delete in AudioBookRequest the request a rejected item is, and write on the item what that did.
+
+    Only a book that waits is deleted: one already downloaded stays as it
+    is. Deleting removes every user's request for the book, and
+    AudioBookRequest tells none of them. When it cannot be told, the request
+    still waits there: the source's next poll finds it beside a rejected
+    item and deletes it then.
+
+    ``entry`` is the book's entry when the caller read the list already (the
+    poll): every call costs ABR a key check and a write, so it is not read
+    twice.
+    """
+    client = client_for(ABREQ, config)
+    if client is None:
+        taken = TakenBack(
+            "AudioBookRequest is off, so its request could not be deleted and still waits there.", failed=True,
+        )
+    else:
+        try:
+            async with _still_rejected(item_id) as rejected:
+                if not rejected:
+                    return NOT_REJECTED
+                if entry is _UNREAD:
+                    entry = await client.entry(asin)
+                if entry is not None and not abreq_api.fulfilled(entry):
+                    await client.delete(asin)
+        except DeliveryError as exc:
+            log.warning("Could not delete the AudioBookRequest request of item %d: %s", item_id, exc)
+            taken = TakenBack(
+                f"AudioBookRequest could not be told, and its request still waits there: {exc}. "
+                "It is deleted at the next poll that reaches AudioBookRequest.",
+                failed=True,
+            )
+        else:
+            if entry is None:
+                taken = TakenBack(_ABREQ_GONE)
+            elif abreq_api.fulfilled(entry):
+                taken = TakenBack(_ABREQ_ALREADY)
+            else:
+                taken = TakenBack(_ABREQ_WOULD_DELETE if dryrun.active() else ABREQ_DELETED)
+    await _note_taken_back(item_id, taken, ABREQ, asin)
+    return taken
+
+
+async def reflect_abreq(item_id: int, downloaded: bool) -> str | None:
+    """Write on an item that still waits here what happened to its book in AudioBookRequest.
+
+    ``downloaded`` True: somebody had it downloaded there, and the item is
+    approved; the worker then records it handed over without sending
+    anything. That holds for an item in error too: ABR answers a download
+    call with nothing done while a search of its own for the book runs, and
+    that search may grab it after. False: nobody asks for it any more, and
+    the item is rejected.
+    """
+    reason = _ABREQ_DOWNLOADED_THERE if downloaded else _ABREQ_REMOVED
+    return await _reflect(item_id, not downloaded, reason, ABREQ, REVIEWABLE_STATUSES)
+
+
+async def decline_for(item_id: int, origin_key: str | None, config: Config | None = None) -> TakenBack | None:
+    """Tell the app a rejected request item came from: Seerr declines it, AudioBookRequest deletes it.
+
+    None for an item that is no such request, and for one a newer item of
+    the same book stands for: nothing it decides is sent.
+    """
+    asked = seerr_api.request_of(origin_key)
+    if asked is not None:
+        return await decline_request(item_id, asked[1], config)
+    book = abreq_api.request_of(origin_key)
+    if book is not None and not abreq_api.retired(origin_key):
+        return await decline_abreq(item_id, book[1], config)
+    return None
 
 
 def grab_refusal(
@@ -921,6 +1181,11 @@ def grab_refusal(
     """
     if seerr_api.request_of(origin_key) is not None:
         return "This item is a Seerr request, and Seerr picks its own release. Approve it to approve the request."
+    if abreq_api.request_of(origin_key) is not None:
+        return (
+            "This item is an AudioBookRequest request, and AudioBookRequest picks its own release. "
+            "Approve it to start the download there."
+        )
     target = target_for(media_type, config)
     if target == QBITTORRENT:
         return None
@@ -999,7 +1264,19 @@ async def _seerr_state(client: SeerrClient, download: Any, item: Any, tmdb_id: i
     return RemoteState()
 
 
-_STATE = {RADARR: _radarr_state, SONARR: _sonarr_state, SEERR: _seerr_state}
+async def _abreq_state(client: AbreqClient, download: Any, item: Any, tmdb_id: int | None) -> RemoteState:
+    """Done once AudioBookRequest is read again.
+
+    A delivery is recorded only once the book is downloaded there, which in
+    AudioBookRequest means handed to its download client. Nothing it says
+    later can undo that, a request deleted after it included. So the one
+    thing this waits for is an answer.
+    """
+    await client.entry(str(download.remote_id))
+    return RemoteState(done=True)
+
+
+_STATE = {RADARR: _radarr_state, SONARR: _sonarr_state, SEERR: _seerr_state, ABREQ: _abreq_state}
 
 
 async def poll(download: Any, config: Config | None = None) -> RemoteState:
@@ -1074,10 +1351,11 @@ async def stalled(download: Any, state: RemoteState) -> None:
         # A Seerr request declined or removed in Seerr after it was approved:
         # somebody decided there, and the item says so. It is not an error
         # for a person to sort out, and nothing is sent back.
-        elsewhere = state.declined and seerr_api.request_of(getattr(item, "origin_key", None)) is not None
+        kind = request_kind(getattr(item, "origin_key", None))
+        elsewhere = state.declined and kind is not None
         values: dict[str, Any] = {"status": ItemStatus.ERROR, "error_message": message}
         if elsewhere:
-            reason = f"{DECIDED_IN_SEERR}: {state.problem}"
+            reason = f"{DECIDED_IN_ABREQ if kind == ABREQ else DECIDED_IN_SEERR}: {state.problem}"
             values = {
                 "status": ItemStatus.REJECTED, "error_message": reason[0].upper() + reason[1:],
                 "reviewed_at": datetime.now(timezone.utc), "reasons": _with_reasons(item, [reason]),
@@ -1125,6 +1403,12 @@ class TakenBack:
     failed: bool = False
 
 
+#: What a decline answers when the item stopped being rejected before it was
+#: sent: a person approved it after the poll read it. Nothing is sent and
+#: nothing is written on the item.
+NOT_REJECTED = TakenBack("The item is no longer rejected, so nothing was sent.")
+
+
 def _season_words(numbers: list[int]) -> str:
     names = [str(n) for n in numbers]
     if len(names) == 1:
@@ -1164,6 +1448,8 @@ async def withdraw(
     if target not in REMOTE or not remote_id:
         return None
     label = LABELS[target]
+    if target == ABREQ:
+        return TakenBack(_ABREQ_ALREADY)
     if not created:
         return TakenBack(f"{label} had it before this item did, so it is left as it is there.")
     client = client_for(target, config)
@@ -1314,6 +1600,14 @@ def where(item: Any, download: Any = None, config: Config | None = None) -> str 
         return (
             f"Seerr request {asked[1]}: approving approves it in Seerr, and rejecting declines it there. "
             "Seerr fetches it; deliver is not read for it."
+        )
+    book = abreq_api.request_of(getattr(item, "origin_key", None))
+    if book is not None:
+        if getattr(getattr(item, "status", None), "value", None) not in _BEFORE_DELIVERY:
+            return None
+        return (
+            f"AudioBookRequest request {book[1]}: approving starts its download in AudioBookRequest, and "
+            "rejecting deletes the request there. AudioBookRequest picks the release; deliver is not read for it."
         )
     target = target_for(getattr(item, "media_type", None), config)
     if target == QBITTORRENT:

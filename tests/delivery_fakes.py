@@ -443,3 +443,102 @@ class FakeSeerr(FakeServer):
                 self.remove_request(found["id"])
                 return httpx.Response(204)
         return _json(404, {"message": "Not Found"})
+
+
+# ---------------------------------------------------------------------------
+# AudioBookRequest
+# ---------------------------------------------------------------------------
+
+
+class FakeAbreq(FakeServer):
+    """AudioBookRequest 1.11 (``downloaded``), or 2.x with ``v2`` (``fulfilled``).
+
+    The key goes in ``Authorization: Bearer``. Books are kept by ASIN with
+    their requests; a book nobody asks for is not listed. ``auto-download``
+    answers 204 whether it grabbed or not, as ABR does: it grabs only a book
+    in ``releases``.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.books: dict[str, dict[str, Any]] = {}
+        self.requests: dict[str, list[dict[str, Any]]] = {}
+        #: The ASINs a Prowlarr search finds a release for.
+        self.releases: set[str] = set()
+        #: 2.x names the flag ``fulfilled`` (and keeps the old filter names).
+        self.v2 = False
+        #: False answers auto-download with ABR's redirect to its Prowlarr settings.
+        self.prowlarr = True
+        #: Prowlarr's message when it refuses the grab: ABR answers 500 with it.
+        self.refuse_grab: str | None = None
+        #: ABR answers 500 after the grab when its own success notification fails.
+        self.fail_after_grab = False
+        self.group = "admin"
+
+    def _handle(self, request: httpx.Request) -> httpx.Response:
+        self.calls.append(Call(
+            request.method, request.url.path, dict(request.url.params), None,
+            {k.lower(): v for k, v in request.headers.items()}, str(request.url),
+        ))
+        if self.down is not None:
+            raise self.down("fake failure", request=request)
+        if request.headers.get("Authorization") != f"Bearer {self.accepts}":
+            return _json(401, {"detail": "Authentication required"})
+        return self.route(request.method, request.url.path, dict(request.url.params), None, request)
+
+    def ask(
+        self, asin: str, title: str = "Some Book", authors=("Ann Author",), *, user: str = "reader",
+        at: str = "2026-11-10T09:00:00", narrators=("Ned Narrator",), released: str = "2019-05-02T00:00:00",
+        subtitle: str | None = None,
+    ) -> None:
+        """A user asks for a book: ABR caches it from Audible and keeps one request row per user."""
+        self.books.setdefault(asin, {
+            "asin": asin, "title": title, "subtitle": subtitle, "authors": list(authors),
+            "narrators": list(narrators), "cover_image": None, "release_date": released,
+            "runtime_length_min": 600, "updated_at": at, "downloaded": False,
+        })
+        self.requests.setdefault(asin, []).append({"asin": asin, "user_username": user, "updated_at": at})
+
+    def downloaded(self, asin: str) -> bool:
+        return self.books[asin]["downloaded"]
+
+    def _book(self, asin: str) -> dict[str, Any]:
+        book = dict(self.books[asin])
+        if self.v2:
+            book["fulfilled"] = book.pop("downloaded")
+        return book
+
+    def route(self, method, path, params, body, request) -> httpx.Response:
+        if (method, path) == ("GET", "/api/users/me"):
+            return _json(200, {"username": "keeper", "group": self.group, "root": self.group == "admin"})
+        if (method, path) == ("GET", "/api/requests"):
+            wanted = params.get("filter", "all")
+            out = []
+            for asin, rows in self.requests.items():
+                if not rows:
+                    continue
+                done = self.books[asin]["downloaded"]
+                if wanted in ("downloaded", "fulfilled") and not done:
+                    continue
+                if wanted in ("not_downloaded", "not_fulfilled") and done:
+                    continue
+                out.append({"book": self._book(asin), "requests": list(rows), "download_error": None})
+            return _json(200, out)
+        parts = path.strip("/").split("/")
+        if method == "POST" and len(parts) == 4 and parts[:2] == ["api", "requests"] and parts[3] == "auto-download":
+            asin = parts[2]
+            if not self.prowlarr:
+                return httpx.Response(302, headers={"location": "/settings/prowlarr?prowlarr_misconfigured=1"})
+            if asin not in self.books:
+                return _json(404, {"detail": "Book not found"})
+            if self.refuse_grab is not None:
+                return _json(500, {"detail": self.refuse_grab})
+            if asin in self.releases and not self.books[asin]["downloaded"]:
+                self.books[asin]["downloaded"] = True
+                if self.fail_after_grab:
+                    return httpx.Response(500, text="Internal Server Error")
+            return httpx.Response(204)
+        if method == "DELETE" and len(parts) == 3 and parts[:2] == ["api", "requests"]:
+            self.requests.pop(parts[2], None)
+            return httpx.Response(204)
+        return _json(404, {"detail": "Not Found"})
