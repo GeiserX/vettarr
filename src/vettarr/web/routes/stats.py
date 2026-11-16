@@ -577,7 +577,7 @@ KIND_LABELS = {
     events.DELIVERED: "Delivered",
     events.COMPLETED: "Completed",
     events.DELIVERY_FAILED: "Delivery failed",
-    events.DECLINED: "Declined in Seerr",
+    events.DECLINED: "Declined at the target",
     events.WEBHOOK_TEST: "Webhook test",
     events.BOT_CHAT: "Bot chat",
 }
@@ -672,7 +672,8 @@ def _sentence(kind: str, payload: dict[str, Any]) -> str:
         return f"{failed}." if failed else "Its Seerr request was declined."
     if kind == events.WEBHOOK_TEST:
         source = payload.get("source")
-        return f"Seerr's test notification reached {'the source ' + str(source) if source else 'a source'}."
+        app = payload.get("app") or "Seerr"
+        return f"{app}'s test notification reached {'the source ' + str(source) if source else 'a source'}."
     if kind == events.BOT_CHAT:
         if payload.get("state") == "left":
             return "The bot left a chat."

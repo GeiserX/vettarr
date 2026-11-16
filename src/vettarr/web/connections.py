@@ -1,7 +1,7 @@
 """Test connection: one request to an integration, made when the operator asks.
 
 Each probe sends the smallest request that proves the address answers and
-the credential is accepted. Radarr, Sonarr and Seerr are asked by the
+the credential is accepted. Radarr, Sonarr, Seerr and AudioBookRequest are asked by the
 delivery code itself (``delivery.test_connection``), with the client an
 approved item is handed over with. Nothing here runs on a page load. The answer is
 one sentence for the page: it never holds the address, the key, or an
@@ -56,7 +56,7 @@ async def _prowlarr(http: httpx.AsyncClient, block: Any) -> Result:
     return _verdict(resp, "Prowlarr")
 
 
-DELIVERY_TARGETS = {"radarr": "Radarr", "sonarr": "Sonarr", "seerr": "Seerr"}
+DELIVERY_TARGETS = {"radarr": "Radarr", "sonarr": "Sonarr", "seerr": "Seerr", "abreq": "AudioBookRequest"}
 
 
 async def _delivery(name: str, config: Config) -> Result:

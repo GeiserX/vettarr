@@ -20,13 +20,15 @@ Kinds:
 - ``cookie_expired``: a tracker session could not be established
 - ``bot_added``: an item arrived through a bot source
 - ``delivered``: an approved item was handed to its ``deliver`` target
-  (payload: target, and for Radarr, Sonarr and Seerr the id there)
+  (payload: target, and for Radarr, Sonarr, Seerr and AudioBookRequest the id there)
 - ``completed``: the target has the files, already had them, or the type is
   delivered nowhere (target ``none``)
 - ``delivery_failed``: the target would not take the item, or lost it
-- ``declined``: a Seerr request was declined or removed there
-- ``webhook_test``: Seerr's test notification reached a ``seerr`` source's
-  webhook (payload: source)
+- ``declined``: a Seerr request was declined or removed there, or an
+  AudioBookRequest request was removed there
+- ``webhook_test``: Seerr's or AudioBookRequest's test notification reached a
+  ``seerr`` or ``abreq`` source's webhook (payload: source, and app for
+  AudioBookRequest)
 - ``bot_chat``: a reviewer added the bot to a chat, or the bot left a chat a
   reviewer added it to or a bot source reads
   (payload: chat_id, title, state ``joined`` or ``left``, is_admin,

@@ -42,6 +42,9 @@ def _upstream_message(resp: httpx.Response) -> str:
     if not isinstance(data, dict):
         return ""
     text = data.get("errorMessage") or data.get("message") or data.get("error") or ""
+    if not text and isinstance(data.get("detail"), str):
+        # FastAPI's shape, which AudioBookRequest answers in.
+        text = data["detail"]
     return str(text)[:_MESSAGE_LIMIT]
 
 
@@ -72,8 +75,12 @@ class Api:
         json: Any = None,
         headers: dict[str, str] | None = None,
         missing_ok: bool = False,
+        timeout: float | None = None,
     ) -> Any:
         """The decoded JSON answer. ``missing_ok`` turns a 404 into None.
+
+        ``timeout`` replaces the client's own for this one call, for a service
+        that does slow work before it answers.
 
         Under ``dry_run`` anything but a GET is not sent: it is a
         ``would_have`` event, answered with the body it would have sent and
@@ -86,6 +93,7 @@ class Api:
             resp = await self._http.request(
                 method, self._base + path, params=params, json=json,
                 headers={**self._headers, **(headers or {})},
+                **({"timeout": timeout} if timeout is not None else {}),
             )
         except httpx.TimeoutException:
             raise DeliveryError(f"{self.name} did not answer in time") from None

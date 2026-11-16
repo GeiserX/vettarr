@@ -247,13 +247,16 @@ _CONFIG_DOCUMENT = Read("configfile.put edits the YAML document in memory; the w
 #: file and the class or function that holds the call; a key ending in ``*``
 #: covers everything under that name.
 GUARDS: dict[str, object] = {
-    # Radarr, Sonarr and Seerr: every call goes through Api.request.
+    # Radarr, Sonarr, Seerr and AudioBookRequest: every call goes through Api.request.
     "delivery/http.py::Api.request": SELF,
     "delivery/radarr.py::RadarrClient.*": _ARR_API,
     "delivery/sonarr.py::SonarrClient.*": _ARR_API,
     "delivery/seerr.py::SeerrClient.*": _ARR_API,
+    "delivery/abreq.py::AbreqClient.*": _ARR_API,
     # SeerrClient.request: a Seerr request, made through Api.request.
     "delivery/__init__.py::_to_seerr": _SEERR_CLIENT,
+    # AbreqClient.delete: deleting a request, made through Api.request.
+    "delivery/__init__.py::decline_abreq": _SEERR_CLIENT,
     # The download client: every call but the login goes through _request.
     "searcher/qbittorrent_client.py::QBittorrentClient._request": SELF,
     "searcher/qbittorrent_client.py::QBittorrentClient._login": Read("a login changes nothing on the client"),
@@ -1352,7 +1355,7 @@ class PageTests(EnvCase):
             self.assertEqual(actions._approved_message("X", MediaType.MOVIE), "Would have queued X for download.")
 
     def test_a_rejection_says_what_it_would_have_done_to_the_post(self) -> None:
-        outcome = SimpleNamespace(rejected=True, seerr_request=None, remote_note=None, remote_failed=False)
+        outcome = SimpleNamespace(rejected=True, request_origin=None, remote_note=None, remote_failed=False)
 
         def reject(done: str) -> str:
             with mock.patch.object(actions, "reject_item", mock.AsyncMock(return_value=outcome)), \

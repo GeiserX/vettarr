@@ -82,19 +82,20 @@
         {% for entry in sources %}
         {% set s = entry.source %}
         {% set failed = entry.form.errors or entry.form.problems %}
+        {% set app = {'seerr': 'Seerr', 'abreq': 'AudioBookRequest'}.get(s.kind) %}
         <div class="card p-4">
             <div class="flex flex-wrap items-center gap-2">
                 <h3 class="font-semibold font-mono">{{ s.key }}</h3>
                 <span class="badge badge-unknown">{{ s.kind }}</span>
             </div>
             <dl class="kv mt-2">
-                {% if s.kind != 'seerr' %}<dt>Chat</dt><dd class="font-mono">{{ s.chat }}</dd>{% endif %}
+                {% if not app %}<dt>Chat</dt><dd class="font-mono">{{ s.chat }}</dd>{% endif %}
                 {% if s.kind == 'userbot' %}<dt>Posts from before</dt><dd>{{ {'off': 'none, only new posts', 'since_last': 'since the last one read', 'full': 'the whole history'}[s.backfill] }}</dd>{% endif %}
-                {% if s.kind == 'seerr' %}<dt>Asked every</dt><dd>{{ s.poll_minutes }} min</dd>
-                <dt>Webhook</dt><dd>{% if entry.form.vals.webhook_secret_state %}<span class="state state-ok"><span aria-hidden="true">&#10003;</span>secret {{ entry.form.vals.webhook_secret_state }}</span> <span class="font-mono break-all">/hooks/seerr/{{ s.key }}</span>{% else %}<span class="state state-off"><span aria-hidden="true">&#9675;</span>off: no secret set, the poll alone reads Seerr</span>{% endif %}</dd>{% endif %}
-                {% if s.kind != 'seerr' %}<dt>Read with</dt><dd>{% if s.formats %}<span class="font-mono">{{ s.formats|join(', ') }}</span>{% else %}every format, in the file's order{% endif %}</dd>{% endif %}
+                {% if app %}<dt>Asked every</dt><dd>{{ s.poll_minutes }} min</dd>
+                <dt>Webhook</dt><dd>{% if entry.form.vals.webhook_secret_state %}<span class="state state-ok"><span aria-hidden="true">&#10003;</span>secret {{ entry.form.vals.webhook_secret_state }}</span> <span class="font-mono break-all">/hooks/{{ s.kind }}/{{ s.key }}</span>{% else %}<span class="state state-off"><span aria-hidden="true">&#9675;</span>off: no secret set, the poll alone reads {{ app }}</span>{% endif %}</dd>{% endif %}
+                {% if not app %}<dt>Read with</dt><dd>{% if s.formats %}<span class="font-mono">{{ s.formats|join(', ') }}</span>{% else %}every format, in the file's order{% endif %}</dd>{% endif %}
                 <dt>Messages from</dt><dd>{% if s.allowed_senders is string %}{{ {'reviewers': 'the reviewers', 'anyone': 'anyone'}[s.allowed_senders] }}{% else %}{{ s.allowed_senders|length }} listed user ids{% endif %}</dd>
-                {% if s.kind != 'seerr' %}
+                {% if not app %}
                 <dt>Own torrents from</dt><dd>{{ {'reviewers': 'the reviewers', 'anyone': 'anyone', 'off': 'nobody'}[s.direct_adds] }}</dd>
                 <dt>After a download</dt><dd>the post is {{ {'none': 'left alone', 'react': 'reacted to', 'delete': 'deleted'}[s.on_download] }}</dd>
                 <dt>After a reject</dt><dd>the post is {{ {'none': 'left alone', 'react': 'reacted to', 'delete': 'deleted'}[s.on_reject] }}</dd>
@@ -141,7 +142,7 @@
                 <div>
                     <label class="label" for="parse-source">As it would arrive through</label>
                     <select class="input" id="parse-source" name="source">
-                        {% for entry in sources if entry.source.kind != 'seerr' %}<option value="{{ entry.source.key }}">{{ entry.source.key }}</option>{% endfor %}
+                        {% for entry in sources if entry.source.kind not in ('seerr', 'abreq') %}<option value="{{ entry.source.key }}">{{ entry.source.key }}</option>{% endfor %}
                         <option value="">no source: every format, in the file's order</option>
                     </select>
                 </div>

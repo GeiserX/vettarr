@@ -37,6 +37,10 @@ dry_run: false
 # seerr:   Seerr's pending requests, decided by the policy and approved or
 #          declined in Seerr (needs integrations.seerr and integrations.tmdb).
 #          docs/CONFIG.md "Seerr requests" says what to paste in Seerr.
+# abreq:   AudioBookRequest's requests, decided by the policy; an approved
+#          book is downloaded by AudioBookRequest, a rejected request is
+#          deleted there (needs integrations.abreq). docs/CONFIG.md
+#          "AudioBookRequest requests" says what to set up in AudioBookRequest.
 # on_download / on_reject: delete | react | none. Default none: the app never
 # touches a post unless you say so.
 sources: []
@@ -61,6 +65,11 @@ sources: []
 #                                     # 16 characters. Seerr posts to /hooks/seerr/requests
 #     poll_minutes: 5                 # the pending list is read this often as well
 #     allowed_senders: anyone         # anyone | [Seerr user ids]
+#   - key: audiobooks
+#     kind: abreq
+#     webhook_secret: ${ABREQ_WEBHOOK_SECRET}   # the notification's Authorization header;
+#                                     # at least 16 characters. ABR posts to /hooks/abreq/audiobooks
+#     poll_minutes: 5                 # the request list is read this often as well
 
 # --- Formats: how a post is read --------------------------------------------
 # Word lists, not code. Words match case-insensitively, anywhere in the post,
@@ -236,6 +245,10 @@ integrations:
     url: http://seerr:5055
     api_key: ${SEERR_API_KEY}
     user_id: 2                        # requests are made as this Seerr user
+  abreq:                              # AudioBookRequest, for an abreq source
+    enabled: false
+    url: http://audiobookrequest:8000
+    api_key: ${ABREQ_API_KEY}         # an admin's API key
   tmdb:
     enabled: false
     api_key: ${TMDB_API_KEY}

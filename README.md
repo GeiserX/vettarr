@@ -9,7 +9,7 @@
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-%3E%3D3.12-blue?style=flat-square&logo=python&logoColor=white" alt="Python 3.12+"></a>
 </p>
 
-<p align="center"><strong>Send it a link, a post, a magnet, a torrent or a Seerr request. Your rules decide whether it downloads.</strong></p>
+<p align="center"><strong>Send it a link, a post, a magnet, a torrent, a Seerr request or an AudioBookRequest request. Your rules decide whether it downloads.</strong></p>
 
 Licensed under the GNU Affero General Public License, version 3 or later ([LICENSE](LICENSE)).
 
@@ -30,11 +30,11 @@ The screenshots show the demo data `vettarr demo-seed` writes.
 
 ## What it does
 
-- **Takes items from wherever you find them.** A Telegram group or channel read as your account (it can read history), a bot you message or add to a group, a magnet or a `.torrent` sent to the bot, an IMDb or TMDB link, a plain title, or Seerr's pending requests.
+- **Takes items from wherever you find them.** A Telegram group or channel read as your account (it can read history), a bot you message or add to a group, a magnet or a `.torrent` sent to the bot, an IMDb or TMDB link, a plain title, Seerr's pending requests, or the audiobooks asked for in AudioBookRequest.
 - **Reads posts by word lists, not code.** A group's card format is a list of words in `config.yaml`; scene release names are read out of the box.
 - **Decides by rules you write.** One signal, one operator, one value per rule: certification by country, IMDb parents-guide severity, TMDB genre and keyword, size, resolution, source, seeders, release group, book subject, whether it is already in your library, and more. Each rule says what a hit does: approve, hold for review, or reject.
 - **Shows its reasons.** Every decision is stored with the rules that made it. Shadow mode decides and records without acting, so you can watch it before trusting it, and the Policy page previews what a change would do to the last 200 items before you save.
-- **Delivers.** An approved item goes to qBittorrent (the exact torrent a post linked, or the best search result through Prowlarr or a tracker's own search), to Radarr or Sonarr, or back to Seerr as an approval.
+- **Delivers.** An approved item goes to qBittorrent (the exact torrent a post linked, or the best search result through Prowlarr or a tracker's own search), to Radarr or Sonarr, back to Seerr as an approval, or back to AudioBookRequest, which downloads the approved audiobook.
 - **Works from a phone.** The web UI has an Inbox, a one-at-a-time Review with keys and swipes, an item page, Policy, Setup and Stats, in light and dark. The Telegram bot pushes each item that needs you, with the same actions.
 
 ## Quick start
@@ -53,7 +53,7 @@ Open http://localhost:4850. The example config starts the web UI and the policy 
 Then edit `data/config.yaml`:
 
 1. Set a password: `docker compose run --rm app vettarr web hash-password`, put the line it prints in `.env` as `WEB_PASSWORD_HASH=...`, and uncomment `web.auth` in the file.
-2. Add a source, the integrations you run (Prowlarr, qBittorrent, Radarr, Sonarr, Seerr, TMDB) and where each media type goes (`deliver`).
+2. Add a source, the integrations you run (Prowlarr, qBittorrent, Radarr, Sonarr, Seerr, AudioBookRequest, TMDB) and where each media type goes (`deliver`).
 3. Check it: `docker compose run --rm app vettarr config check /data/config.yaml` validates the file and lists what would start.
 4. Apply it: `docker compose up -d --force-recreate app`. Use this rather than `docker compose restart`, which keeps the container's old environment and never reads the new `.env` line.
 

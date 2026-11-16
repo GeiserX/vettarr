@@ -26,7 +26,6 @@ from sqlalchemy import and_, or_, select, update
 
 from vettarr import delivery, dryrun, ingest
 from vettarr.database import async_session
-from vettarr.delivery import seerr as seerr_api
 from vettarr.models import (
     OP_MANUAL_DOWNLOAD,
     OP_MANUAL_SEARCH,
@@ -175,8 +174,11 @@ def _approve_statement(item_ids: Iterable[int]):
 def _approved_message(title: str | None, media_type, origin_key: str | None = None) -> str:
     """What approving answers: where `deliver` sends the item's type."""
     what = title or "the item"
-    if seerr_api.request_of(origin_key) is not None:
+    kind = delivery.request_kind(origin_key)
+    if kind == delivery.SEERR:
         return f"Approved {what}. Its Seerr request is approved next, and Seerr fetches it."
+    if kind == delivery.ABREQ:
+        return f"Approved {what}. AudioBookRequest is asked to download it next."
     target = delivery.target_for(media_type)
     # Approved here all the same; only what reaches the target is a would-have.
     queued = queued_word()
@@ -254,8 +256,8 @@ async def reject(item_id: int, ingester: TelegramIngester | None) -> RejectResul
     message = _REJECTED.get(done, _REJECTED_POST_UNCHANGED)
     if dryrun.active():
         message = _REJECTED_DRY_RUN.get(done, message)
-    if outcome.seerr_request is not None:
-        # A Seerr request has no post to speak of.
+    if outcome.request_origin is not None:
+        # A request has no post to speak of.
         message = "Rejected."
     if outcome.remote_note:
         message = f"{message} {outcome.remote_note}"
@@ -266,7 +268,7 @@ async def reject(item_id: int, ingester: TelegramIngester | None) -> RejectResul
         deletes_post=done == "deleted",
         remote_note=outcome.remote_note,
         remote_failed=outcome.remote_failed,
-        post_unchanged=outcome.seerr_request is None and done not in _REJECTED,
+        post_unchanged=outcome.request_origin is None and done not in _REJECTED,
     )
 
 
@@ -521,6 +523,10 @@ RERUN_SEERR_DECLINED = (
     "The policy's rejection declined its Seerr request, and Seerr approves no declined request. "
     "Nothing was changed: the title has to be asked for again in Seerr."
 )
+RERUN_ABREQ_DELETED = (
+    "The policy's rejection deleted its AudioBookRequest request. "
+    "Nothing was changed: the book has to be asked for again in AudioBookRequest."
+)
 
 
 async def _put_back(item_id: int, status: ItemStatus, error_message: str | None) -> None:
@@ -546,7 +552,8 @@ async def rerun(item_id: int) -> ActionResult:
 
     Not a Seerr request the policy rejected: that rejection declined the
     request (or the next poll does), and a declined request cannot be
-    approved. Deciding the item again would only set it against Seerr.
+    approved. Deciding the item again would only set it against Seerr. The
+    same for an AudioBookRequest request, which the rejection deleted.
 
     A re-run that decides nothing changes nothing. TMDB answers an outage, a
     refused key and a rate limit the way it answers "no such title", so an
@@ -565,11 +572,13 @@ async def rerun(item_id: int) -> ActionResult:
         item = await session.get(MediaItem, item_id)
         if item is None:
             return _not_found(item_id)
+        kind = delivery.request_kind(item.origin_key)
         if (
-            seerr_api.request_of(item.origin_key) is not None and item.status is ItemStatus.REJECTED
+            kind is not None and item.status is ItemStatus.REJECTED
             and item.reviewed_at is None and item.policy_outcome == "reject"
         ):
-            return ActionResult(item_id=item_id, status=Status.FAILED, title=item.title, message=RERUN_SEERR_DECLINED)
+            refused = RERUN_ABREQ_DELETED if kind == delivery.ABREQ else RERUN_SEERR_DECLINED
+            return ActionResult(item_id=item_id, status=Status.FAILED, title=item.title, message=refused)
         before, error_before = item.status, item.error_message
         row = (
             await session.execute(

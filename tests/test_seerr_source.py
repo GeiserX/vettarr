@@ -1092,6 +1092,30 @@ class SeerrDownTests(SourceCase):
         self.assertIn("rejected: Its Seerr request was declined.", self.reasons(item))
         self.assertEqual(self.poll().declined, 0)
 
+    def test_a_person_s_approval_after_the_poll_read_the_item_stops_its_late_decline(self) -> None:
+        self.severe_violence()
+        request_id = self.ask()
+        self.poll()
+        self.seerr.down = httpx.ConnectError
+        self.decide()
+        item = self.item(request_id)
+        self.seerr.down = None
+        self.seerr.calls.clear()
+        decline = delivery.decline_request
+
+        async def approved_first(item_id, *args, **kwargs):
+            # A person approves the policy's rejection after the poll read
+            # the item as rejected, before the poll reaches its request.
+            self.assertTrue((await actions.approve(item_id)).ok)
+            return await decline(item_id, *args, **kwargs)
+
+        with mock.patch.object(delivery, "decline_request", approved_first):
+            done = self.poll()
+        self.assertEqual(done.declined, 0)
+        self.assertEqual(self.decisions(), [])
+        self.assertEqual((item.status, self.status(request_id)), (ItemStatus.APPROVED, fakes.REQUEST_PENDING))
+        self.assertNotIn("rejected: Its Seerr request was declined.", self.reasons(item))
+
     def test_a_reviewer_s_reject_seerr_does_not_answer_says_so_and_is_made_later(self) -> None:
         self.moderate_nudity()
         request_id = self.ask()
@@ -1826,7 +1850,7 @@ class ConfigTests(unittest.TestCase):
     def test_a_short_secret_and_one_on_another_kind_are_errors(self) -> None:
         for sources, fragment in (
             ("  - {key: requests, kind: seerr, webhook_secret: short}\n", "at least 16 characters"),
-            ("  - {key: inbox, kind: bot, chat: private, webhook_secret: 0123456789abcdef}\n", "seerr sources only"),
+            ("  - {key: inbox, kind: bot, chat: private, webhook_secret: 0123456789abcdef}\n", "seerr and abreq sources only"),
             # Three a header can never match: the route would answer 401 for ever.
             ("  - {key: requests, kind: seerr, webhook_secret: 'Bearer 0123456789abcdef'}\n", "must not start with"),
             ("  - {key: requests, kind: seerr, webhook_secret: 'contrase\u00f1a-0123456789abcdef'}\n", "plain ASCII"),
@@ -1915,7 +1939,8 @@ class DocsTests(unittest.TestCase):
         start = example.index("#   - key: requests")
         lines = []
         for line in example[start:].splitlines():
-            if not line.startswith("#   "):
+            # Up to the next commented source, or the end of the comment.
+            if not line.startswith("#   ") or (lines and line.startswith("#   - key:")):
                 break
             lines.append(line[2:])
         block = "\n".join(lines)

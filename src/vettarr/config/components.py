@@ -33,12 +33,16 @@ def components(cfg: Config) -> list[tuple[str, str]]:
             # The webhook route exists only for a source with a secret, and the web UI serves it.
             hooked = s.webhook_secret is not None and cfg.web is not None
             out.append(("seerr-source", f"{s.key}: " + (f"webhook plus {poll}" if hooked else f"{poll}, no webhook")))
+        elif s.kind == "abreq":
+            poll = f"a poll every {s.poll_minutes} min"
+            hooked = s.webhook_secret is not None and cfg.web is not None
+            out.append(("abreq-source", f"{s.key}: " + (f"webhook plus {poll}" if hooked else f"{poll}, no webhook")))
 
     if cfg.web is not None:
         out.append(("web", f"{cfg.web.bind}:{cfg.web.port}" + ("" if cfg.web.auth else " (no auth)")))
 
     integ = cfg.integrations
-    for name in ("prowlarr", "qbittorrent", "radarr", "sonarr", "seerr", "tmdb", "google_books", "jellyfin"):
+    for name in ("prowlarr", "qbittorrent", "radarr", "sonarr", "seerr", "abreq", "tmdb", "google_books", "jellyfin"):
         if integ.enabled(name):
             out.append((name, "integration"))
     # The base rules and every scope's own.

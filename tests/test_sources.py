@@ -1135,6 +1135,9 @@ class DirectAddsSettingTests(unittest.TestCase):
         self.assertEqual(Source.model_validate({"key": "r", "kind": "seerr"}).direct_adds, "off")
         with self.assertRaises(ValidationError):
             Source.model_validate({"key": "r", "kind": "seerr", "direct_adds": "anyone"})
+        self.assertEqual(Source.model_validate({"key": "r", "kind": "abreq"}).direct_adds, "off")
+        with self.assertRaises(ValidationError):
+            Source.model_validate({"key": "r", "kind": "abreq", "direct_adds": "anyone"})
 
     def test_who_may_hand_over_a_torrent_of_their_own(self) -> None:
         cases = [
