@@ -20,7 +20,8 @@ everything after that is shared. What a message can be:
   TMDB search names the type.
 
 A Seerr request is not a message. ``vettarr.seerr_source`` names it from
-its TMDB id and hands it to ``add``.
+its TMDB id and hands it to ``add``; ``vettarr.abreq_source`` does the same
+with an AudioBookRequest book.
 
 ``ingest`` asks the database whether the message is already an item before it
 downloads or looks up anything, so reading a history again costs one query a

@@ -1826,7 +1826,7 @@ class ConfigTests(unittest.TestCase):
     def test_a_short_secret_and_one_on_another_kind_are_errors(self) -> None:
         for sources, fragment in (
             ("  - {key: requests, kind: seerr, webhook_secret: short}\n", "at least 16 characters"),
-            ("  - {key: inbox, kind: bot, chat: private, webhook_secret: 0123456789abcdef}\n", "seerr sources only"),
+            ("  - {key: inbox, kind: bot, chat: private, webhook_secret: 0123456789abcdef}\n", "seerr and abreq sources only"),
             # Three a header can never match: the route would answer 401 for ever.
             ("  - {key: requests, kind: seerr, webhook_secret: 'Bearer 0123456789abcdef'}\n", "must not start with"),
             ("  - {key: requests, kind: seerr, webhook_secret: 'contrase\u00f1a-0123456789abcdef'}\n", "plain ASCII"),
@@ -1915,7 +1915,8 @@ class DocsTests(unittest.TestCase):
         start = example.index("#   - key: requests")
         lines = []
         for line in example[start:].splitlines():
-            if not line.startswith("#   "):
+            # Up to the next commented source, or the end of the comment.
+            if not line.startswith("#   ") or (lines and line.startswith("#   - key:")):
                 break
             lines.append(line[2:])
         block = "\n".join(lines)

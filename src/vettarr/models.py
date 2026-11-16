@@ -315,11 +315,11 @@ class Download(Base):
     #: only that.
     created_torrent: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     #: Where the approved item was handed, when that is not the download
-    #: client: radarr, sonarr or seerr. NULL for the download client, on the
+    #: client: radarr, sonarr, seerr or abreq. NULL for the download client, on the
     #: rows written before delivery targets existed as on the ones after.
     delivery_target: Mapped[str | None] = mapped_column(Text)
-    #: What the target calls it: Radarr's movie id, Sonarr's series id or
-    #: Seerr's request id. NULL for the download client, whose handle is
+    #: What the target calls it: Radarr's movie id, Sonarr's series id,
+    #: Seerr's request id or AudioBookRequest's ASIN. NULL for the download client, whose handle is
     #: `qbittorrent_hash`.
     remote_id: Mapped[str | None] = mapped_column(Text)
     #: What this item's delivery turned on in Sonarr: `{"series": bool,

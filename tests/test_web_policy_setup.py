@@ -1401,6 +1401,26 @@ class SourceTests(ConfigCase):
             })
             self.assertNotIn(secret, self.get("/setup").text)
 
+    def test_an_abreq_source_saves_with_no_chat_and_keeps_its_secret(self) -> None:
+        secret = "-".join(("hook", "secret", "nobody", "sees"))
+        text = self.before.replace(
+            "formats:\n", "  - key: audiobooks\n    kind: abreq\n    webhook_secret: ${HOOK_SECRET}\nformats:\n", 1,
+        ).replace("integrations:\n", "integrations:\n  abreq:\n    url: http://abr:8000\n    api_key: ${TMDB_KEY}\n", 1)
+        with mock.patch.dict(os.environ, {"HOOK_SECRET": secret}):
+            self.path.write_text(text)
+            self.running = self.file()
+            page = self.get("/setup").text
+            self.assertNotIn(secret, page)
+            self.assertIn("/hooks/abreq/audiobooks", text_of(page))
+            data = self.form("/setup", "/setup/sources", lambda d: d["original"] == ["audiobooks"])
+            self.assertNotIn("chat", data)
+            self.assertNotIn("allowed_senders", data)
+            resp = self.post("/setup/sources", data={**data, "poll_minutes": ["9"]}, headers=HTMX)
+            self.assertEqual(resp.headers.get("HX-Redirect"), self.saved("sources"), resp.text)
+            self.assertEqual(loader.plain(loader.read_document(self.path))["sources"][1], {
+                "key": "audiobooks", "kind": "abreq", "webhook_secret": "${HOOK_SECRET}", "poll_minutes": 9,
+            })
+
     def test_a_seerr_webhook_secret_is_shown_as_set_never_as_its_value_and_written_only_when_typed(self) -> None:
         secret = "-".join(("hook", "secret", "nobody", "sees"))
         typed = "-".join(("a", "new", "secret", "typed", "here"))

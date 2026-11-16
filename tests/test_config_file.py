@@ -275,6 +275,7 @@ class ValidationTests(unittest.TestCase):
             ("- {key: a, kind: userbot, chat: private}", "chat: private is for bot sources"),
             ("- {key: a, kind: userbot}", "needs a chat"),
             ("- {key: a, kind: seerr, on_download: delete}", "use none"),
+            ("- {key: a, kind: abreq, on_download: delete}", "use none"),
         ):
             with self.subTest(text=text):
                 errors = errors_of("sources:\n  " + text + "\n")

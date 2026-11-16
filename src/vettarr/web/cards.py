@@ -224,6 +224,9 @@ REJECT_OTHER_DOWNLOAD = "Its torrent was in the download client before this app 
 # A Seerr request has no post: rejecting it declines the request, while it is still pending.
 REJECT_SEERR_REQUEST = "Its Seerr request is declined."
 REJECT_SEERR_APPROVED = "Its Seerr request is already approved, and stays as it is in Seerr."
+# An AudioBookRequest request: rejecting deletes it, while the book is not downloaded.
+REJECT_ABREQ_REQUEST = "Its AudioBookRequest request is deleted, for every user who asked for the book."
+REJECT_ABREQ_DOWNLOADED = "AudioBookRequest already downloaded the book, and it stays as it is there."
 REJECT_BULK_POSTS = {
     "delete": "Every post will be deleted.",
     "react": "Every post will get a reaction.",
@@ -324,6 +327,11 @@ class Card:
     def seerr_request(self) -> bool:
         """The item is a request a Seerr user made: Seerr delivers it, and has no post for it."""
         return seerr_api.request_of(self.item.origin_key) is not None
+
+    @property
+    def request_app(self) -> str | None:
+        """seerr or abreq for an item that is a request taken from that app, which delivers it."""
+        return delivery.request_kind(self.item.origin_key)
 
     @property
     def progress(self) -> int | None:
@@ -479,6 +487,8 @@ class Card:
         """What rejecting this item deletes, for the dialog that asks first."""
         if self.seerr_request:
             return REJECT_SEERR_REQUEST if self.download is None else REJECT_SEERR_APPROVED
+        if self.request_app == delivery.ABREQ:
+            return REJECT_ABREQ_REQUEST if self.download is None else REJECT_ABREQ_DOWNLOADED
         said = [REJECT_POST[self.post_effect]]
         if self.download is not None:
             target = self.download.delivery_target
@@ -505,8 +515,8 @@ class Card:
     def can_rerun(self) -> bool:
         if self.item.status in (_S.PENDING_REVIEW, _S.AWAITING_DATA):
             return True
-        # The policy's rejection of a Seerr request declined it there, for good.
-        return self.rejected_by_policy and not self.seerr_request
+        # The policy's rejection of a request declined (or deleted) it there, for good.
+        return self.rejected_by_policy and self.request_app is None
 
     @property
     def selectable(self) -> bool:
@@ -861,9 +871,9 @@ def _handed(item: MediaItem) -> tuple[str | None, str, bool]:
     """(direct_add, on_reject, to_client) of an item, from the config."""
     source = ingest.source_for(item.source_key, item.telegram_chat_id)
     # Only the download client takes a post's own torrent or a picked release,
-    # and a Seerr request never goes there: its delivery is Seerr, whatever `deliver` says.
+    # and a request never goes there: its delivery is the app it came from, whatever `deliver` says.
     to_client = (
-        seerr_api.request_of(item.origin_key) is None
+        delivery.request_kind(item.origin_key) is None
         and delivery.target_for(item.media_type) == delivery.QBITTORRENT
     )
     return (ingest.direct_add_of(item) if to_client else None), getattr(source, "on_reject", "none"), to_client

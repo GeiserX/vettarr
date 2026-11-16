@@ -187,6 +187,10 @@ async def check_delivery(dl: Download, posts=None) -> None:
 async def _recover_seerr(posts=None) -> None:
     """A Seerr delivery that went to a person still completes once Seerr has the files.
 
+    An AudioBookRequest delivery too: it went to a person only because
+    AudioBookRequest could not be asked for an hour, and it was downloaded
+    there before it was recorded.
+
     Seerr marks a request failed when Radarr or Sonarr turned the title away,
     which they do when they already hold it, and then its availability sync
     finds the files anyway. Seen live: two items stayed errors for days after
@@ -196,7 +200,8 @@ async def _recover_seerr(posts=None) -> None:
     async with async_session() as session:
         failed = (await session.execute(
             select(Download).where(
-                Download.status == DownloadStatus.ERROR, Download.delivery_target == delivery.SEERR,
+                Download.status == DownloadStatus.ERROR,
+                Download.delivery_target.in_([delivery.SEERR, delivery.ABREQ]),
             )
         )).scalars().all()
     for dl in failed:
@@ -204,10 +209,10 @@ async def _recover_seerr(posts=None) -> None:
             if not (await delivery.poll(dl)).done:
                 continue
         except delivery.DeliveryError as exc:
-            log.debug("Could not ask Seerr again about item %d: %s", dl.media_item_id, exc)
+            log.debug("Could not ask %s again about item %d: %s", dl.delivery_target, dl.media_item_id, exc)
             continue
         except Exception:
-            log.exception("Re-checking the Seerr delivery of item %d failed", dl.media_item_id)
+            log.exception("Re-checking the %s delivery of item %d failed", dl.delivery_target, dl.media_item_id)
             continue
         async with async_session() as session:
             if not await _complete_item(session, dl.media_item_id, frozenset({ItemStatus.ERROR})):
@@ -219,7 +224,7 @@ async def _recover_seerr(posts=None) -> None:
             await session.commit()
         await delivery.completed(dl)
         await delivery.arrived(dl, posts)
-        log.info("Seerr has the files of item %d after all; its error is cleared", dl.media_item_id)
+        log.info("%s has the files of item %d after all; its error is cleared", dl.delivery_target, dl.media_item_id)
 
 
 async def _check_downloads(posts=None) -> None:
@@ -308,27 +313,29 @@ class Scheduler:
         self._scheduler.start()
         log.info(
             "Scheduler started (download check every 5 min, waiting re-check hourly, "
-            "session keep-alive for %d provider(s), poll of %d Seerr source(s))", kept, polled,
+            "session keep-alive for %d provider(s), poll of %d request source(s))", kept, polled,
         )
 
     def add_seerr_poll_jobs(self, config: Config) -> int:
-        """One recurring read of Seerr's pending requests per `seerr` source, every `poll_minutes`.
+        """One recurring read of the requests per `seerr` and `abreq` source, every `poll_minutes`.
 
         The first runs soon after the start, so what the webhook sent while
         the app was down is not left waiting a whole interval.
         """
-        from vettarr import seerr_source
+        from vettarr import abreq_source, seerr_source
 
+        jobs = {"seerr": (seerr_source.poll_job, "Seerr"), "abreq": (abreq_source.poll_job, "AudioBookRequest")}
         count = 0
         for source in config.sources:
-            if source.kind != "seerr":
+            if source.kind not in jobs:
                 continue
+            job, label = jobs[source.kind]
             self._scheduler.add_job(
-                seerr_source.poll_job, "interval", minutes=source.poll_minutes, args=[source.key],
+                job, "interval", minutes=source.poll_minutes, args=[source.key],
                 next_run_time=datetime.now(timezone.utc) + _FIRST_SEERR_POLL,
-                id=f"seerr_poll_{source.key}",
+                id=f"{source.kind}_poll_{source.key}",
             )
-            log.info("Source %s: Seerr's pending requests are read every %d min", source.key, source.poll_minutes)
+            log.info("Source %s: %s's requests are read every %d min", source.key, label, source.poll_minutes)
             count += 1
         return count
 

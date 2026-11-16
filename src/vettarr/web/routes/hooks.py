@@ -11,6 +11,11 @@ which Seerr sends as its ``Authorization`` header:
 - anything let in answers 200 with what was done. Seerr does not read the
   answer and never sends a notification twice, so there is nothing to gain
   from an error status: what could not be handled now is found by the poll.
+
+``POST /hooks/abreq/<source key>`` does the same for an AudioBookRequest
+notification on a source of kind ``abreq``. AudioBookRequest runs its
+notifications one after another and stops at the first that fails, so this
+one answers at once and reads the book after the answer is sent.
 """
 
 from __future__ import annotations
@@ -19,10 +24,12 @@ import hmac
 import json
 import logging
 
-from fastapi import APIRouter, Request
+from typing import Any
+
+from fastapi import APIRouter, BackgroundTasks, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
 
-from vettarr import seerr_source
+from vettarr import abreq_source, seerr_source
 from vettarr.config import settings
 
 log = logging.getLogger(__name__)
@@ -54,28 +61,47 @@ async def _body(request: Request) -> bytes | None:
     return bytes(body)
 
 
-@router.post("/hooks/seerr/{source_key}")
-async def seerr_hook(request: Request, source_key: str):
+async def _admit(request: Request, source_key: str, kind: str) -> tuple[Any, Any]:
+    """(source, payload) of a call let in, or (None, the answer that refuses it)."""
     source = next(
-        (s for s in settings.config.sources if s.key == source_key and s.kind == "seerr"), None,
+        (s for s in settings.config.sources if s.key == source_key and s.kind == kind), None,
     )
     if source is None or source.webhook_secret is None:
-        return PlainTextResponse("Not Found", status_code=404)
+        return None, PlainTextResponse("Not Found", status_code=404)
     if not authorized(request.headers.get("authorization"), source.webhook_secret.get_secret_value()):
         log.warning("Source %s: a webhook call without the right Authorization header was refused", source.key)
-        return PlainTextResponse("Unauthorized", status_code=401)
+        return None, PlainTextResponse("Unauthorized", status_code=401)
     body = await _body(request)
     if body is None:
-        return PlainTextResponse("Payload too large", status_code=413)
+        return None, PlainTextResponse("Payload too large", status_code=413)
     try:
-        payload = json.loads(body)
+        return source, json.loads(body)
     except (ValueError, RecursionError):
         # RecursionError: a body nested thousands deep is JSON nobody reads.
-        return PlainTextResponse("The body is not JSON", status_code=400)
+        return None, PlainTextResponse("The body is not JSON", status_code=400)
+
+
+@router.post("/hooks/seerr/{source_key}")
+async def seerr_hook(request: Request, source_key: str):
+    source, payload = await _admit(request, source_key, "seerr")
+    if source is None:
+        return payload
     try:
         result = await seerr_source.hook(source, payload, request.app.state.posts)
     except Exception:
         # Seerr sends once and ignores the answer; the poll finds the request.
         log.exception("Source %s: a webhook call could not be handled", source.key)
         result = "deferred"
+    return JSONResponse({"result": result})
+
+
+@router.post("/hooks/abreq/{source_key}")
+async def abreq_hook(request: Request, source_key: str, background: BackgroundTasks):
+    source, payload = await _admit(request, source_key, "abreq")
+    if source is None:
+        return payload
+    result, asin = abreq_source.triage(source, payload)
+    if asin is not None:
+        # After the answer: the poll finds the book if this fails.
+        background.add_task(abreq_source.hook, source, asin)
     return JSONResponse({"result": result})

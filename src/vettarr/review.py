@@ -17,7 +17,6 @@ from sqlalchemy import select
 
 from vettarr import delivery, dryrun, ingest
 from vettarr.database import async_session
-from vettarr.delivery import seerr as seerr_api
 from vettarr.models import (
     DELETABLE_ON_REJECT,
     REJECTABLE_STATUSES,
@@ -59,9 +58,10 @@ class RejectOutcome:
     remote_note: str | None = None
     #: True when the target could not be told and still has the title.
     remote_failed: bool = False
-    #: Seerr's id of the request this item is, when a seerr source made it.
-    #: Rejecting the item declines that request.
-    seerr_request: int | None = None
+    #: The item's ``origin_key`` when it is a request a seerr or an abreq
+    #: source took (``delivery.request_kind``). Rejecting the item declines
+    #: that request in Seerr, or deletes it in AudioBookRequest.
+    request_origin: str | None = None
 
 
 async def reject_item(item_id: int) -> RejectOutcome:
@@ -106,7 +106,7 @@ async def reject_item(item_id: int) -> RejectOutcome:
                 download.status = DownloadStatus.CANCELLED
 
         message_id = item.telegram_message_id
-        asked = seerr_api.request_of(item.origin_key)
+        asked = item.origin_key if delivery.request_kind(item.origin_key) else None
         item.status = ItemStatus.REJECTED
         item.reviewed_at = datetime.now(timezone.utc)
         await session.commit()
@@ -116,7 +116,7 @@ async def reject_item(item_id: int) -> RejectOutcome:
         rejected=True,
         telegram_message_id=message_id if deletable else None,
         torrent_hash=torrent_hash,
-        seerr_request=asked[1] if asked else None,
+        request_origin=asked,
         **delivered,
     )
 
@@ -130,8 +130,8 @@ async def finish_rejection(
     """Act on the Telegram post (its source's on_reject) and drop the torrent, where allowed.
 
     An item delivered to Radarr, Sonarr or Seerr is taken back there instead
-    (``delivery.take_back``), and an item that is a Seerr request has that
-    request declined (``delivery.decline_request``). ``outcome.remote_note``
+    (``delivery.take_back``), and an item that is a Seerr or AudioBookRequest
+    request has that request declined or deleted (``delivery.decline_for``). ``outcome.remote_note``
     says what was done, and ``outcome.remote_failed`` that the target could
     not be told.
 
@@ -149,15 +149,16 @@ async def finish_rejection(
         except Exception:
             log.exception("Could not remove torrent for item %d", outcome.item_id)
 
-    if outcome.seerr_request is not None:
-        # The item is a Seerr request: Seerr is told no. A request this app
-        # had already approved is past declining, and the answer says so.
+    if outcome.request_origin is not None:
+        # The item is a request: the app it came from is told no. A request
+        # this app had already approved is past declining, and the answer says so.
         try:
-            taken = await delivery.decline_request(outcome.item_id, outcome.seerr_request)
+            taken = await delivery.decline_for(outcome.item_id, outcome.request_origin)
         except Exception:
-            log.exception("Could not decline the Seerr request of item %d", outcome.item_id)
+            log.exception("Could not decline the request of item %d", outcome.item_id)
         else:
-            outcome.remote_note, outcome.remote_failed = taken.note, taken.failed
+            if taken is not None:
+                outcome.remote_note, outcome.remote_failed = taken.note, taken.failed
     elif outcome.delivery_target:
         try:
             taken = await delivery.take_back(

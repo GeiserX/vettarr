@@ -43,7 +43,7 @@ _TITLES = {
     "completed": "Completed",
     "delivery_failed": "Delivery failed",
     "declined": "Declined at the target",
-    "webhook_test": "Seerr's webhook test arrived",
+    "webhook_test": "A webhook test arrived",
     "bot_chat": "The bot joined or left a chat",
 }
 _WARNINGS = frozenset({"needs_you", "cookie_expired", "guard", "delivery_failed", "declined"})
