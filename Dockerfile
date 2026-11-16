@@ -1,4 +1,4 @@
-FROM python:3.14-slim AS builder
+FROM python:3.15-slim AS builder
 
 WORKDIR /app
 COPY pyproject.toml config.example.yaml ./
@@ -12,9 +12,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certifi
     && rm -rf /var/lib/apt/lists/* \
     && TAILWIND_CACHE=/tmp/tailwind sh scripts/build-css.sh \
     && rm -rf /tmp/tailwind
-RUN pip install --no-cache-dir .
+# --prefix keeps the install apart from the base image, so the final stage
+# copies it without naming the Python minor version (a 3.14 path broke the
+# 3.15 bump).
+RUN pip install --no-cache-dir --prefix=/install .
 
-FROM python:3.14-slim
+FROM python:3.15-slim
 
 # --only-upgrade ca-certificates: the base image's 20250419 still trusts the
 # compromised eMudhra intermediates; trixie-security distrusts them.
@@ -23,8 +26,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get install -y --only-upgrade ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /usr/local/lib/python3.14/site-packages /usr/local/lib/python3.14/site-packages
-COPY --from=builder /usr/local/bin /usr/local/bin
+COPY --from=builder /install /usr/local
 COPY --from=builder /app/src /app/src
 COPY alembic.ini /app/alembic.ini
 COPY config.example.yaml /app/config.example.yaml
