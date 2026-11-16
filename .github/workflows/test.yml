@@ -16,8 +16,8 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        # 3.12 is the floor pyproject.toml declares; 3.14 is what the image runs.
-        python: ["3.12", "3.14"]
+        # 3.12 is the floor pyproject.toml declares; 3.15 is what the image runs.
+        python: ["3.12", "3.15"]
     name: unittest (${{ matrix.python }})
     steps:
       - uses: actions/checkout@v7
