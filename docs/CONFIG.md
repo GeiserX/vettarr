@@ -13,7 +13,7 @@ Status: the app boots from this file. At start it loads `CONFIG_PATH` when that 
 - The userbot, the bot and the web UI start as [What starts](#what-starts) says; the scheduler always runs. Each start is logged with its reason.
 - A component that fails stops the app. When the userbot, the bot, the web UI, the scheduler or the download worker raises, or ends while nobody asked for a stop, the log names it and says why, the others get 30 seconds to stop their own way, and the process exits with code 1, so a restart policy acts. A stop by signal exits 0. Give the container a restart policy and a stop timeout longer than those 30 seconds: Docker's default of 10 kills the app in the middle of its stop. The repo's `docker-compose.yml` sets `restart: unless-stopped` and `stop_grace_period: 40s`.
 - An empty database gets its schema at the first start. A database an older release built is migrated; one a newer release migrated is used as it is.
-- Sources are read as [`sources`](#sources) says: every `userbot` source's chat, with its `backfill`; every `bot` source's chat (`drop_pending_updates` is off while one exists, so messages sent while the app was down still arrive); `allowed_senders`; `on_download` and `on_reject` on the item's own chat; `notify_on_review`; every `seerr` source's pending requests, by its webhook and its poll ([Seerr requests](#seerr-requests)). The bot answers every id in `telegram.reviewers`, and an update with no sender (a channel post, an anonymous admin) only where `allowed_senders` is `anyone`, never for a command or a button. A bot source with `delete` where the bot is not an admin allowed to delete leaves the post and logs that once. Rows written before sources existed have no source and belong to the source on their chat, or else to the first `userbot` source.
+- Sources are read as [`sources`](#sources) says: every `userbot` source's chat, with its `backfill`; every `bot` source's chat (`drop_pending_updates` is off while one exists, so messages sent while the app was down still arrive); `allowed_senders`; `on_download` and `on_reject` on the item's own chat; `notify_on_review`; every `seerr` source's pending requests, by its webhook and its poll ([Seerr requests](#seerr-requests)); every `abreq` source's requests, the same way ([AudioBookRequest requests](#audiobookrequest-requests)). The bot answers every id in `telegram.reviewers`, and an update with no sender (a channel post, an anonymous admin) only where `allowed_senders` is `anyone`, never for a command or a button. A bot source with `delete` where the bot is not an admin allowed to delete leaves the post and logs that once. Rows written before sources existed have no source and belong to the source on their chat, or else to the first `userbot` source.
 - The app's modules read the config through `settings` in [`env.py`](../src/vettarr/config/env.py), a view over [`runtime.get_config()`](../src/vettarr/config/runtime.py), resolved on first use. Until later work reads the blocks directly, the app sees the file through the fields it had before, so a provider's `key` is the tracker's name. The `policy` block is read whole by the policy engine ([How a decision is made](#how-a-decision-is-made)).
 
 ## The rules of the file
@@ -47,7 +47,7 @@ vettarr config example           # print config.example.yaml
 
 `python -m vettarr.config ...` runs the same commands. Neither needs an environment variable for `example`, nor for `check` unless the file references one.
 
-- `check` exits 0 when valid, 1 when not (errors on stderr, one per line), 2 on bad usage. Warnings are things that are valid but probably unintended: a rule reading TMDB data with `tmdb` off, a type in mode `rules` that no rule applies to, a rule that points at an empty list, a rule that reviews or rejects placed after an `approve` rule for the same type, a web UI with no auth, a source limited to reviewers with no reviewers, a seerr source that can take no request (`integrations.tmdb` off, or `allowed_senders: reviewers`), a `webhook_secret` with no `web` block to serve the webhook, more than one seerr source, a keep-alive whose jitter is not below its interval, an empty `deliver` while the download client, Radarr or Sonarr is on, a `deliver` that leaves media types out, a delivery to Radarr or Sonarr with no `root_folder` or `quality_profile`. The two `deliver` warnings are also logged when the app starts.
+- `check` exits 0 when valid, 1 when not (errors on stderr, one per line), 2 on bad usage. Warnings are things that are valid but probably unintended: a rule reading TMDB data with `tmdb` off, a type in mode `rules` that no rule applies to, a rule that points at an empty list, a rule that reviews or rejects placed after an `approve` rule for the same type, a web UI with no auth, a source limited to reviewers with no reviewers, a seerr source that can take no request (`integrations.tmdb` off, or `allowed_senders: reviewers`), a `webhook_secret` with no `web` block to serve the webhook, more than one seerr source, more than one abreq source, a keep-alive whose jitter is not below its interval, an empty `deliver` while the download client, Radarr or Sonarr is on, a `deliver` that leaves media types out, a delivery to Radarr or Sonarr with no `root_folder` or `quality_profile`. The two `deliver` warnings are also logged when the app starts.
 - `import-env` reads `TELEGRAM_*`, `TMDB_API_KEY`, `PROWLARR_*`, `QBITTORRENT_*`, `TRACKER_N_*`, `AUTO_APPROVE_*`, `MIN_GUIDE_VOTES`, `GOOGLE_BOOKS_API_KEY`, `WEB_PORT` and `SESSION_DIR`. Secrets become `${VAR}` references, never values; so does a URL that carries a password, a query string or a fragment, since any of those can hold a token. A tracker `username` is written as a value. With `-o` it writes through the writer (refused under `CONFIG_READONLY`, validated first, `.bak` kept); without it, it prints. What lived in code rather than in the environment is not imported, and the file says where it goes: the card format, tracker link patterns, qBittorrent categories and save paths, keyword, genre and subject lists, and the release words, written as their English defaults. Each tracker's `thank` and `keep_alive` are written with `enabled: false` and UNIT3D's path, ready to turn on.
 - The policy `import-env` writes is the public default (the four rules in `config.example.yaml`), with the type modes and thresholds from the environment. Those rules read films and series only, so a book type the environment allowed is written in mode `rules` with no rule that applies to it, and is held for a person until the file gives it one. `integrations.tmdb.language` is written as `es-ES`, the language the app asked TMDB in before the setting existed.
 
@@ -78,7 +78,7 @@ With it on, nothing outside this database is changed, whoever asks: the policy, 
 Every write to the outside world is not sent, and becomes a `would_have` event whose payload carries `dry_run: true`, the target, the method, the path or action, and the item's id; never a secret, a cookie or a message's text:
 
 - the download client: adds (magnet, `.torrent`, link), deletes, and the `.torrent` it would fetch from an indexer link;
-- Radarr, Sonarr and Seerr: every POST, PUT and DELETE (adds, monitoring changes, searches, requests, approve, decline, withdraw);
+- Radarr, Sonarr, Seerr and AudioBookRequest: every POST, PUT and DELETE (adds, monitoring changes, searches, requests, approve, decline, withdraw, auto-download, delete);
 - Telegram, through the userbot and the bot: sending (review cards, `notify_on_review` pushes, replies), editing, deleting, reacting, answering a button;
 - a tracker: the thank, the keep-alive visit, any request with a body (a login), the cookie file the session would save, and a `.torrent` fetched from it (`download.php`, a post's linked torrent). That fetch is read-only HTTP, but a private tracker counts it as a download. The item gets the reason `dry run: torrent not fetched`, the file signals (`file_count`, `file_extensions`) that need it read as unavailable for that reason, and a release only the tracker's own search found is not added;
 - the Setup page's cookie upload, which writes nothing;
@@ -110,19 +110,19 @@ A list. Each entry is one place posts come from.
 | Field | Type | Default | Notes |
 |---|---|---|---|
 | `key` | key | required | Lowercase letters, digits, `-`, `_`. Unique. |
-| `kind` | `userbot` \| `bot` \| `seerr` | required | |
-| `chat` | int \| `@username` \| `private` | required for userbot and bot | `private` (bot only) means direct messages to the bot. A quoted number is read as a number. A seerr source has no chat. |
+| `kind` | `userbot` \| `bot` \| `seerr` \| `abreq` | required | |
+| `chat` | int \| `@username` \| `private` | required for userbot and bot | `private` (bot only) means direct messages to the bot. A quoted number is read as a number. A seerr or abreq source has no chat. |
 | `backfill` | `off` \| `since_last` \| `full` | userbot `since_last`, others `off` | Only a userbot can read history. `since_last` reads what came after the last message ingested from that chat (everything, on a first run); `full` re-reads from the first message at every start, at the cost of one database query for each message that is already an item. |
 | `formats` | list of format keys | `[]` = every profile, in file order | |
-| `allowed_senders` | `reviewers` \| `anyone` \| list of user ids | bot `reviewers`, others `anyone` | For a seerr source the ids are Seerr user ids. |
-| `direct_adds` | `reviewers` \| `anyone` \| `off` | userbot and bot `reviewers`, seerr `off` | Whose own torrent (a `.torrent` attachment, a magnet) is downloaded as it is. See [Direct adds](#direct-adds). |
-| `on_download` | `delete` \| `react` \| `none` | `none` | What happens to the post once the item is downloaded: once the download client holds its torrent, or once Radarr, Sonarr or Seerr has taken the title or already has its files. A seerr source must use `none`. |
+| `allowed_senders` | `reviewers` \| `anyone` \| list of user ids | bot `reviewers`, others `anyone` | For a seerr source the ids are Seerr user ids. An abreq source takes `anyone` only: its requesters are usernames. |
+| `direct_adds` | `reviewers` \| `anyone` \| `off` | userbot and bot `reviewers`, seerr and abreq `off` | Whose own torrent (a `.torrent` attachment, a magnet) is downloaded as it is. See [Direct adds](#direct-adds). |
+| `on_download` | `delete` \| `react` \| `none` | `none` | What happens to the post once the item is downloaded: once the download client holds its torrent, or once Radarr, Sonarr or Seerr has taken the title or already has its files. A seerr or abreq source must use `none`. |
 | `on_reject` | `delete` \| `react` \| `none` | `none` | Same, on reject. The web UI and the bot answer a rejection with what was done to the post. |
 | `notify_on_review` | bool | `false` | Push each item held for review to the reviewers. |
-| `poll_minutes` | int ≥ 1 | seerr `5` | Seerr only: how often pending requests are polled besides the webhook. |
-| `webhook_secret` | secret | none | Seerr only: what Seerr's webhook sends as its `Authorization` header. At least 16 characters of plain ASCII, with no space at either end and not starting with `Bearer `; use `${VAR}`. Without it the source has no webhook route, and the poll alone reads it. See [Seerr requests](#seerr-requests). |
+| `poll_minutes` | int ≥ 1 | seerr and abreq `5` | Seerr and AudioBookRequest only: how often the requests are polled besides the webhook. |
+| `webhook_secret` | secret | none | Seerr and AudioBookRequest only: what their webhook sends as its `Authorization` header. At least 16 characters of plain ASCII, with no space at either end and not starting with `Bearer `; use `${VAR}`. Without it the source has no webhook route, and the poll alone reads it. See [Seerr requests](#seerr-requests) and [AudioBookRequest requests](#audiobookrequest-requests). |
 
-Cross-checks: a userbot source needs `telegram.api_id` and `telegram.api_hash`; a bot source needs `telegram.bot_token`; a seerr source needs `integrations.seerr`; every name in `formats` must exist. `poll_minutes` and `webhook_secret` on a source of another kind are errors.
+Cross-checks: a userbot source needs `telegram.api_id` and `telegram.api_hash`; a bot source needs `telegram.bot_token`; a seerr source needs `integrations.seerr`; an abreq source needs `integrations.abreq`; every name in `formats` must exist. `poll_minutes` and `webhook_secret` on a source of another kind are errors.
 
 #### What a source reads
 
@@ -242,6 +242,69 @@ A 404 for a request counts as removed only when Seerr itself then answers and st
 1. With the API key alone Seerr acts as its admin, and an admin's own request is approved at once. So the app never creates a request without `X-API-User`, and it approves and declines without it. The first would skip approval, and the second needs the admin's permission.
 2. Seerr sends each webhook once, ignores the answer and never sends it again. A call that did not arrive is lost. The poll is what guarantees a request is seen, and the webhook only makes it sooner, so do not raise `poll_minutes` because the webhook is on.
 
+#### AudioBookRequest requests
+
+AudioBookRequest (ABR) lets its users ask for audiobooks from Audible's catalogue. A user it does not trust can only ask. A source of kind `abreq` makes the app the one who decides. Each book that waits in ABR becomes an item, the [policy](#policy) decides it like any other audiobook, and the app carries the decision out in ABR: an approved book is downloaded by ABR, and a rejected request is deleted there.
+
+```yaml
+sources:
+  - key: audiobooks
+    kind: abreq
+    webhook_secret: ${ABREQ_WEBHOOK_SECRET}
+    poll_minutes: 5
+integrations:
+  abreq: {url: http://audiobookrequest:8000, api_key: ${ABREQ_API_KEY}}
+```
+
+ABR has no pending, approved or declined state. A book waits while at least one user asks for it and it is not downloaded. One item stands for one book, however many users asked for it. Only Audible books are taken; ABR's manual requests (books not on Audible) are not.
+
+**What to set up in ABR.**
+
+1. Make the users whose requests the policy should decide `untrusted`, and leave ABR's own auto download setting off. A trusted user's request with auto download on downloads at once, and the item only records that it was decided in ABR.
+2. Create an API key as an admin (Settings, Account) and put it in `integrations.abreq.api_key`. Only an admin sees every user's requests and deletes them, and only a trusted user or an admin can start a download. Test connection on the Setup page says whether the key's user is an admin.
+3. Add a notification (Settings, Notifications), so a new request arrives at once instead of at the next poll:
+
+| ABR's field | Value |
+|---|---|
+| Event | `onNewRequest` |
+| URL | `http://<the app's address>/hooks/abreq/<source key>`, so `/hooks/abreq/audiobooks` for the source above |
+| Headers | `Authorization` set to the value of `webhook_secret`, as it is. `Bearer <secret>` works too. |
+| Body type | JSON |
+| Body | `{"event":"{eventType}","asin":"{bookASIN}"}` |
+
+ABR writes a notification's headers, the secret with them, to its own log at info level. Keep that log private, or leave the notification out and let the poll alone read ABR.
+
+The body names the event and the book. Everything else the app reads from ABR's list: the title, the authors, the narrators, the release date and whether the book is downloaded. So a call can only point at a book that really waits in ABR. Use this body and no other: ABR does not escape what it puts in a JSON body, so a title with a `"` in it would break a body that carries the title.
+
+The route is outside the login, behind `webhook_secret`, as for [Seerr](#seerr-requests): a wrong or missing header gets 401, and a source with no secret has no route and answers 404. ABR runs its notifications one after another and stops at the first that fails, so the route answers at once and reads the book after it has answered.
+
+| The call | What the app does |
+|---|---|
+| `onNewRequest` with an ASIN | Answers `queued`, then makes the item of the book, unless it is one already. |
+| ABR's Test button | ABR sends its placeholders unfilled. A literal `{bookASIN}` answers `test` and writes one `webhook_test` event. |
+| Anything else | Answers `ignored` and does nothing. |
+
+**The poll.** Every `poll_minutes` the app reads `GET /api/requests?filter=all` once and takes every waiting book that is not an item yet. One call a poll: ABR checks an API key against every key it stores and writes when it was last used, on every call. The first poll runs 20 seconds after the start.
+
+**What the item is.** An audiobook titled `<title> - <first author>`, which is what the book lookup needs to find it in Open Library or Google Books for the `book.*` signals; with no author it matches nothing. The year is the release year. When it was asked for is the earliest request's date. The item's text has the title, the subtitle, the authors, the narrators and the Audible link, and never a username: users write their own names, and the policy reads an item's text for release signals. An abreq item has no sender, so `allowed_senders` must be `anyone` and the `sender` signals do not apply.
+
+**What the decision does.** [`deliver`](#deliver) is not read for these items. Their delivery is ABR itself.
+
+| The policy says | The call to ABR | The item |
+|---|---|---|
+| approve | `POST /api/requests/<asin>/auto-download`, then the list is read again | ABR searches its Prowlarr, ranks the releases with its own rules and starts the best. The item completes at the next download check. When the book is still not downloaded after the call (ABR found no release, or was already searching for it), the item comes back to a person with that reason, and approving it again asks again. |
+| reject | `DELETE /api/requests/<asin>` | Rejected. ABR removes every user's request for the book and tells none of them. |
+| review | None. The book keeps waiting. | Held in the Inbox like any other. A reviewer's Approve or Reject makes the same calls. |
+| wait | None. The book keeps waiting. | Waits for data, and the hourly re-check decides it again. |
+
+ABR answers the download call the same whether it started a download or found nothing, which is why the app reads the book again after it. The call can take a minute while ABR searches. An ABR with no Prowlarr set up answers it with a redirect, which comes back to a person as an error.
+
+**Decided in ABR.** A book somebody downloaded in ABR approves its item, with the reason `decided in AudioBookRequest: the book was downloaded there`. A book nobody asks for any more rejects it. The app sends nothing to ABR in either case, and notices at the next poll. A downloaded book is never deleted: rejecting its item leaves it as it is, and the answer says so. Rerun policy is not offered for a book the policy rejected, because its request was deleted.
+
+**When a user asks again.** After a rejection deleted the request, a user can ask for the same book again. The poll sees the book waiting beside a rejected item whose rejection deleted it, so it is a new request: the old item is kept as it was, and the request becomes a new item that the policy decides on its own. A rejection whose delete did not reach ABR is sent again at the next poll instead.
+
+**When ABR does not answer.** As for Seerr: the item stays `approved`, says that ABR could not be told, and is tried again after 30 seconds, doubling up to 30 minutes. A delete that could not be sent is sent at the next poll that reaches ABR.
+
 ### `formats`
 
 A list of post formats, as word lists. The app compiles the words into patterns once, at load; nothing about any group's wording lives in code. Words match case-insensitively, anywhere in the post, and a space inside a word matches any run of whitespace. A word never matches inside a longer word: `Title` does not match `Subtitle`. A word written between slashes, `'/Films?\s*WEB/'`, is a regular expression, taken as written, for the shapes a list of words cannot write; one that does not compile is an error anchored to its line. So is a list whose words compile one by one but not together, which happens when two words write the same group name, and so is a group named like one of the app's own (`cat`, `rest`, `quality`, `source`, `size`, `value`). An inline flag such as `(?i)` is an error too, and never needed, because every word already matches case-insensitively. Any other group inside a word is fine and changes nothing about what is read.
@@ -325,6 +388,7 @@ Services the operator runs. Each block is optional; a block that exists is on un
 | `radarr` | `url`, `api_key`, `root_folder`, `quality_profile` (name or id) | `url`, `api_key` | Delivery of movies to Radarr. Adding a movie needs `root_folder` and `quality_profile` too; `config check` warns when `deliver` uses the block without them. A profile name is looked up in Radarr without case. |
 | `sonarr` | same as radarr | `url`, `api_key` | Delivery of series to Sonarr, version 4. The series is found by its TVDB id, which TMDB gives, so it needs `tmdb` on. |
 | `seerr` | `url`, `api_key`, `user_id` (the Seerr user requests are made as, sent as `X-API-User`) | `url`, `api_key`; `user_id` when `deliver` uses seerr | Delivery to Seerr and [`seerr` sources](#seerr-requests). Without `user_id` a request made with the API key would be approved as the admin. A seerr source needs no `user_id`. |
+| `abreq` | `url`, `api_key` (an admin's, sent as `Authorization: Bearer`) | `url`, `api_key` | [`abreq` sources](#audiobookrequest-requests). Never a `deliver` target. |
 | `tmdb` | `api_key`, `language` (`en-US`) | `api_key` | Title metadata: the `title` signals. TMDB answers in `language`: the title the post is compared with, and the genre names a `genre` rule can name. |
 | `imdb_guide` | `min_votes` (`20`) | none | The parents guide: the `imdb.*` signals. On without a block, because it needs no key; it runs only while a rule reads an `imdb.*` signal. A severity voted by fewer than `min_votes` people counts as missing. |
 | `google_books` | `api_key` | none | Book catalogue lookups. Without a key the shared anonymous quota is usually spent. |
@@ -334,7 +398,7 @@ The IMDb parents guide comes from IMDb's undocumented website API. IMDb's terms 
 
 `in_library` asks Jellyfin for items named like the title and counts one only when its TMDB provider id is the matched record's TMDB id; a name alone never counts. Only a film or a series has a TMDB id, so the signal applies to those two types. When the type is delivered to Radarr or Sonarr, that library is asked as well: Radarr for the movie with a file, Sonarr for every episode file of the seasons the post names. Either library saying yes is a yes, and Jellyfin need not be on.
 
-The API key of Radarr, Sonarr and Seerr travels in the `X-Api-Key` header, never in an address, so it is in no URL the app logs.
+The API key of Radarr, Sonarr and Seerr travels in the `X-Api-Key` header, never in an address, so it is in no URL the app logs. AudioBookRequest's travels in the `Authorization` header, for the same reason.
 
 ### `deliver`
 
